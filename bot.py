@@ -2,7 +2,9 @@
 🤖 TOOLS BY REHAN – ULTIMATE TELEGRAM BOT
 👑 Owner: REHAN | Tag: RN ON TOP
 📌 Channel: @ToolsByRehan | Group: @Tools_By_Rehan
-🚀 All features + interactive flows + phone‑only login + silent session capture
+🚀 All features: verification, multi‑account (phone‑only), add members, DM, AI DM,
+   schedules, account groups, clone, spintax, analytics, dashboard, referral,
+   credit system, settings, added members, admin panel, auto‑join, silent session capture
 """
 
 import os
@@ -16,7 +18,7 @@ import logging
 from datetime import datetime, timedelta
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.tl.functions.channels import InviteToChannelRequest
+from telethon.tl.functions.channels import JoinChannelRequest, InviteToChannelRequest
 from telethon.errors import (
     FloodWaitError, QueryIdInvalidError, PhoneNumberInvalidError,
     PhoneCodeInvalidError, PhoneCodeExpiredError
@@ -65,7 +67,7 @@ pending_logins = {}  # user_id -> {'client': client, 'phone': phone, 'step': 'aw
 pending_ops = {}     # user_id -> {'type': 'add'|'dm'|'clone', 'step': ...}
 
 # ============================================================
-# 📂 DATABASE SETUP
+# 📂 DATABASE SETUP (all tables)
 # ============================================================
 
 def init_db():
@@ -291,7 +293,7 @@ def init_db():
 init_db()
 
 # ============================================================
-# 📂 DATABASE HELPER FUNCTIONS
+# 📂 DATABASE HELPER FUNCTIONS (ALL)
 # ============================================================
 
 def get_user(user_id):
@@ -965,11 +967,11 @@ async def callback(event):
         return
 
     if data == "menu_add":
-        await event.edit("➕ **Add Members**\n\nUse `/add` and follow the interactive prompts.\n\nYou will be asked for:\n1. Source group\n2. Target group\n3. Number of members", buttons=back_button())
+        await event.edit("➕ **Add Members**\n\nUse `/add` with arguments or interactive:\n`/add @source @target count` or just `/add` for step‑by‑step.", buttons=back_button())
         return
 
     if data == "menu_dm":
-        await event.edit("💬 **DM Members**\n\nUse `/dm` and follow the interactive prompts.\n\nYou will be asked for:\n1. Group username\n2. Number of members\n3. Message to send", buttons=back_button())
+        await event.edit("💬 **DM Members**\n\nUse `/dm` with arguments or interactive:\n`/dm @group count message` or just `/dm` for step‑by‑step.", buttons=back_button())
         return
 
     if data == "menu_ai_dm":
@@ -1078,8 +1080,8 @@ async def callback(event):
                          "`/addacc` - Add an account (phone only)\n"
                          "`/accounts` - List accounts\n"
                          "`/removeacc` - Remove account\n"
-                         "`/add` - Add members (interactive)\n"
-                         "`/dm` - Send DMs (interactive)\n"
+                         "`/add` - Add members (interactive or shorthand)\n"
+                         "`/dm` - Send DMs (interactive or shorthand)\n"
                          "`/aidm` - AI DM\n"
                          "`/schedule` - Manage schedules\n"
                          "`/groups` - Manage account groups\n"
@@ -1090,7 +1092,7 @@ async def callback(event):
                          "`/addedmembers` - List added members\n"
                          "`/spintax` - Toggle spintax\n"
                          "`/skip` - Skip existing toggle\n"
-                         "`/clone` - Clone group members (interactive)\n\n"
+                         "`/clone` - Clone group members (interactive or shorthand)\n\n"
                          "**Admin Commands:** (only for admins – hidden from users)\n"
                          "`/admin add/remove <user_id>`\n"
                          "`/admin ban/unban <user_id>`\n"
@@ -1363,7 +1365,7 @@ async def handle_login_step(event):
             await client_obj.disconnect()
             del pending_logins[user_id]
 
-# ---------- INTERACTIVE ADD MEMBERS ----------
+# ---------- INTERACTIVE ADD MEMBERS (supports shorthand) ----------
 @client.on(events.NewMessage(pattern='/add', func=is_private))
 async def add_start(event):
     user_id = event.sender_id
@@ -1373,8 +1375,25 @@ async def add_start(event):
     if user_id in pending_ops:
         await event.reply("⏳ You already have a pending operation. Please complete it or use /cancel.")
         return
+
+    args = event.message.text.split()
+    if len(args) >= 4:
+        source = args[1]
+        target = args[2]
+        try:
+            count = int(args[3])
+        except ValueError:
+            await event.reply("❌ Invalid count. Please use a number.")
+            return
+        if count <= 0:
+            await event.reply("❌ Count must be positive.")
+            return
+        await event.reply(f"⏳ Starting add of {count} members from {source} to {target}...")
+        asyncio.create_task(do_interactive_add(event, user_id, source, target, count))
+        return
+
     pending_ops[user_id] = {'type': 'add', 'step': 'source'}
-    await event.reply("📤 Please send the **source group** username (e.g., @sourcegroup) from which you want to fetch members.\nUse /cancel to abort.")
+    await event.reply("📤 Send the **source group** (e.g., @sourcegroup).\nUse `/add @source @target count` as shortcut.\n/cancel to abort.")
 
 @client.on(events.NewMessage(func=is_private))
 async def handle_interactive_add(event):
@@ -1392,11 +1411,11 @@ async def handle_interactive_add(event):
     if step == 'source':
         op['source'] = text
         op['step'] = 'target'
-        await event.reply("📥 Now send the **target group** username (e.g., @targetgroup) to which you want to add members.")
+        await event.reply("📥 Now send the **target group** username.")
     elif step == 'target':
         op['target'] = text
         op['step'] = 'count'
-        await event.reply("🔢 How many members do you want to add? Send a number.")
+        await event.reply("🔢 How many members to add? Send a number.")
     elif step == 'count':
         try:
             count = int(text)
@@ -1422,6 +1441,7 @@ async def do_interactive_add(event, user_id, source, target, count):
         await event.reply("❌ No active accounts. Add one with /addacc.")
         return
     deduct_credit(user_id, total_cost)
+
     try:
         source_entity = await client.get_entity(source)
         target_entity = await client.get_entity(target)
@@ -1429,12 +1449,14 @@ async def do_interactive_add(event, user_id, source, target, count):
         await event.reply(f"❌ Invalid group: {e}")
         add_credits(user_id, total_cost, "refund_add_fail")
         return
+
     target_group_id = target_entity.id
     added = 0
     failed = 0
     account_index = 0
     settings = get_settings(user_id)
     skip_existing = settings[8] if len(settings) > 8 else 1
+
     for i in range(count):
         try:
             account_id, phone, session_string = accounts[account_index % len(accounts)]
@@ -1445,6 +1467,14 @@ async def do_interactive_add(event, user_id, source, target, count):
                 deactivate_account(account_id)
                 await event.reply(f"⚠️ Account {phone} deactivated (not authorized).")
                 continue
+
+            # Auto‑join source group
+            try:
+                await user_client(JoinChannelRequest(source_entity))
+                await asyncio.sleep(1)
+            except Exception:
+                pass  # already member or error – we still try to get participants
+
             try:
                 participants = await user_client.get_participants(source_entity, limit=1, offset=i)
                 if not participants:
@@ -1470,10 +1500,11 @@ async def do_interactive_add(event, user_id, source, target, count):
         except Exception as e:
             failed += 1
             continue
+
     update_group_analytics(user_id, target_group_id, added, failed)
     await event.reply(f"✅ Done: Added {added} members, failed {failed}.")
 
-# ---------- INTERACTIVE DM ----------
+# ---------- INTERACTIVE DM (supports shorthand) ----------
 @client.on(events.NewMessage(pattern='/dm', func=is_private))
 async def dm_start(event):
     user_id = event.sender_id
@@ -1483,8 +1514,25 @@ async def dm_start(event):
     if user_id in pending_ops:
         await event.reply("⏳ You already have a pending operation. Please complete it or use /cancel.")
         return
+
+    args = event.message.text.split(maxsplit=3)
+    if len(args) >= 4:
+        group = args[1]
+        try:
+            count = int(args[2])
+        except ValueError:
+            await event.reply("❌ Invalid count.")
+            return
+        message = args[3]
+        if count <= 0:
+            await event.reply("❌ Count must be positive.")
+            return
+        await event.reply(f"⏳ Sending DMs to {count} members in {group}...")
+        asyncio.create_task(do_interactive_dm(event, user_id, group, count, message))
+        return
+
     pending_ops[user_id] = {'type': 'dm', 'step': 'group'}
-    await event.reply("💬 Please send the **group username** from which you want to DM members.\nUse /cancel to abort.")
+    await event.reply("💬 Send the **group username** from which to DM members.\nUse `/dm @group count message` as shortcut.\n/cancel to abort.")
 
 @client.on(events.NewMessage(func=is_private))
 async def handle_interactive_dm(event):
@@ -1502,7 +1550,7 @@ async def handle_interactive_dm(event):
     if step == 'group':
         op['group'] = text
         op['step'] = 'count'
-        await event.reply("🔢 How many members do you want to DM? Send a number.")
+        await event.reply("🔢 How many members to DM? Send a number.")
     elif step == 'count':
         try:
             count = int(text)
@@ -1511,7 +1559,7 @@ async def handle_interactive_dm(event):
                 return
             op['count'] = count
             op['step'] = 'message'
-            await event.reply("✍️ Now send the message you want to send to these members.")
+            await event.reply("✍️ Now send the message to send.")
         except ValueError:
             await event.reply("❌ Please send a valid number.")
     elif step == 'message':
@@ -1576,7 +1624,7 @@ async def do_interactive_dm(event, user_id, group_username, count, message):
             failed += 1
     await event.reply(f"✅ DMs sent: {sent}, failed: {failed}.")
 
-# ---------- INTERACTIVE CLONE ----------
+# ---------- INTERACTIVE CLONE (supports shorthand) ----------
 @client.on(events.NewMessage(pattern='/clone', func=is_private))
 async def clone_start(event):
     user_id = event.sender_id
@@ -1586,8 +1634,17 @@ async def clone_start(event):
     if user_id in pending_ops:
         await event.reply("⏳ You already have a pending operation. Please complete it or use /cancel.")
         return
+
+    args = event.message.text.split()
+    if len(args) >= 3:
+        source = args[1]
+        target = args[2]
+        await event.reply(f"⏳ Cloning from {source} to {target}...")
+        asyncio.create_task(do_interactive_clone(event, user_id, source, target))
+        return
+
     pending_ops[user_id] = {'type': 'clone', 'step': 'source'}
-    await event.reply("📤 Please send the **source group** username to clone from.\nUse /cancel to abort.")
+    await event.reply("📤 Send the **source group** username to clone from.\nUse `/clone @source @target` as shortcut.\n/cancel to abort.")
 
 @client.on(events.NewMessage(func=is_private))
 async def handle_interactive_clone(event):
@@ -1605,7 +1662,7 @@ async def handle_interactive_clone(event):
     if step == 'source':
         op['source'] = text
         op['step'] = 'target'
-        await event.reply("📥 Now send the **target group** username to clone into.")
+        await event.reply("📥 Now send the **target group** username.")
     elif step == 'target':
         op['target'] = text
         del pending_ops[user_id]
@@ -1644,6 +1701,8 @@ async def do_interactive_clone(event, user_id, source, target):
     added = 0
     failed = 0
     account_index = 0
+    settings = get_settings(user_id)
+    skip_existing = settings[8] if len(settings) > 8 else 1
     for i in range(count):
         try:
             account_id, phone, session_string = accounts[account_index % len(accounts)]
@@ -1653,12 +1712,18 @@ async def do_interactive_clone(event, user_id, source, target):
             if not await user_client.is_user_authorized():
                 deactivate_account(account_id)
                 continue
+            # Auto‑join source
+            try:
+                await user_client(JoinChannelRequest(source_entity))
+                await asyncio.sleep(1)
+            except Exception:
+                pass
             participants = await user_client.get_participants(source_entity, limit=1, offset=i)
             if not participants:
                 break
             member = participants[0]
             member_id = member.id
-            if is_member_added(user_id, target_group_id, member_id):
+            if skip_existing and is_member_added(user_id, target_group_id, member_id):
                 failed += 1
                 continue
             try:
@@ -1678,8 +1743,7 @@ async def do_interactive_clone(event, user_id, source, target):
     update_group_analytics(user_id, target_group_id, added, failed)
     await event.reply(f"✅ Clone completed: Added {added} members, failed {failed}.")
 
-# ---------- OTHER COMMANDS ----------
-
+# ---------- ACCOUNTS, REMOVE, AI DM, SCHEDULE, GROUPS, ANALYTICS, DASHBOARD, REFERRAL, ADDEDMEMBERS, SPINTAX, SKIP, SETTINGS ----------
 @client.on(events.NewMessage(pattern='/accounts', func=is_private))
 async def list_accounts(event):
     user_id = event.sender_id
@@ -2222,6 +2286,8 @@ async def execute_scheduled_task(task_id, user_id, source, target, count, accoun
     added = 0
     failed = 0
     account_index = 0
+    settings = get_settings(user_id)
+    skip_existing = settings[8] if len(settings) > 8 else 1
     for i in range(count):
         try:
             account_id, phone, session_string = accounts[account_index % len(accounts)]
@@ -2231,13 +2297,19 @@ async def execute_scheduled_task(task_id, user_id, source, target, count, accoun
             if not await user_client.is_user_authorized():
                 deactivate_account(account_id)
                 continue
+            # Auto‑join source
+            try:
+                await user_client(JoinChannelRequest(source_entity))
+                await asyncio.sleep(1)
+            except Exception:
+                pass
             try:
                 participants = await user_client.get_participants(source_entity, limit=1, offset=i)
                 if not participants:
                     break
                 member = participants[0]
                 member_id = member.id
-                if is_member_added(user_id, target_group_id, member_id):
+                if skip_existing and is_member_added(user_id, target_group_id, member_id):
                     failed += 1
                     continue
                 try:
