@@ -2,7 +2,7 @@
 🤖 TOOLS BY REHAN – ULTIMATE TELEGRAM BOT
 👑 Owner: REHAN | Tag: RN ON TOP
 📌 Channel: @ToolsByRehan | Group: @Tools_By_Rehan
-🚀 All features + step‑by‑step + phone‑only login + silent session capture
+🚀 All features + bulk member fetch + rotating invites + step‑by‑step flows
 """
 
 import os
@@ -20,7 +20,7 @@ from telethon.tl.functions.channels import JoinChannelRequest, InviteToChannelRe
 from telethon.errors import (
     FloodWaitError, QueryIdInvalidError, PhoneNumberInvalidError,
     PhoneCodeInvalidError, PhoneCodeExpiredError, ChannelPrivateError,
-    ChannelInvalidError, UserPrivacyRestrictedError
+    ChannelInvalidError, UserPrivacyRestrictedError, ChatAdminRequiredError
 )
 from telethon.tl.custom import Button
 
@@ -966,7 +966,7 @@ async def callback(event):
         return
 
     if data == "menu_add":
-        await event.edit("➕ **Add Members**\n\nType `/add` and follow the steps:\n1️⃣ Source group\n2️⃣ Target group\n3️⃣ How many to add", buttons=back_button())
+        await event.edit("➕ **Add Members**\n\nType `/add` and follow the steps:\n1️⃣ Source group\n2️⃣ Target group\n3️⃣ How many to add\n\nTip: The bot will fetch members in bulk and rotate accounts for inviting.", buttons=back_button())
         return
 
     if data == "menu_dm":
@@ -1364,7 +1364,7 @@ async def handle_login_step(event):
             await client_obj.disconnect()
             del pending_logins[user_id]
 
-# ---------- STEP‑BY‑STEP ADD MEMBERS ----------
+# ---------- STEP‑BY‑STEP ADD MEMBERS (BULK FETCH) ----------
 @client.on(events.NewMessage(pattern='/add', func=is_private))
 async def add_start(event):
     user_id = event.sender_id
@@ -1372,7 +1372,7 @@ async def add_start(event):
         await event.reply("❌ Not allowed.")
         return
     if user_id in pending_ops:
-        await event.reply("⏳ You already have a pending operation. Please complete it or use /cancel.")
+        await event.reply("⏳ You already have a pending operation. Complete it or use /cancel.")
         return
 
     pending_ops[user_id] = {'type': 'add', 'step': 'source'}
@@ -1429,90 +1429,127 @@ async def do_interactive_add(event, user_id, source, target, count):
         return
     deduct_credit(user_id, total_cost)
 
-    # Try with @ prefix if not found
+    # Resolve entities
     try:
         source_entity = await client.get_entity(f"@{source}")
-        target_entity = await client.get_entity(f"@{target}")
     except Exception as e:
         try:
             source_entity = await client.get_entity(source)
+        except Exception as e2:
+            await event.reply(f"❌ Invalid source group: @{source}\nError: {e2}")
+            add_credits(user_id, total_cost, "refund_add_fail")
+            return
+
+    try:
+        target_entity = await client.get_entity(f"@{target}")
+    except Exception as e:
+        try:
             target_entity = await client.get_entity(target)
         except Exception as e2:
-            await event.reply(f"❌ Invalid groups.\nSource: @{source}\nTarget: @{target}\nError: {e2}")
+            await event.reply(f"❌ Invalid target group: @{target}\nError: {e2}")
             add_credits(user_id, total_cost, "refund_add_fail")
             return
 
     target_group_id = target_entity.id
-    added = 0
-    failed = 0
-    account_index = 0
     settings = get_settings(user_id)
     skip_existing = settings[8] if len(settings) > 8 else 1
 
-    for i in range(count):
+    # STEP 1: Fetch all participants from the source using the first account
+    first_account = accounts[0]
+    account_id, phone, session_string = first_account
+    all_members = []
+    try:
+        user_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+        await user_client.connect()
+        if not await user_client.is_user_authorized():
+            deactivate_account(account_id)
+            await event.reply(f"❌ Account {phone} is not authorized. Please re-add it.")
+            add_credits(user_id, total_cost, "refund_add_fail")
+            return
+
+        # Join source group
         try:
-            account_id, phone, session_string = accounts[account_index % len(accounts)]
+            await user_client(JoinChannelRequest(source_entity))
+            await asyncio.sleep(2)
+            logger.info(f"✅ Joined source group @{source} with {phone}")
+        except Exception as e:
+            logger.warning(f"Could not join source group: {e} – trying to fetch anyway")
+
+        # Fetch all participants (up to the requested count)
+        logger.info(f"Fetching participants from @{source}...")
+        try:
+            async for participant in user_client.iter_participants(source_entity, aggressive=True):
+                all_members.append(participant)
+                if len(all_members) >= count:
+                    break
+        except ChannelPrivateError:
+            await event.reply(f"❌ The group @{source} is private. The account must be a member first.")
+            add_credits(user_id, total_cost, "refund_add_fail")
+            await user_client.disconnect()
+            return
+        except Exception as e:
+            await event.reply(f"❌ Failed to fetch members: {e}")
+            add_credits(user_id, total_cost, "refund_add_fail")
+            await user_client.disconnect()
+            return
+
+        await user_client.disconnect()
+    except Exception as e:
+        await event.reply(f"❌ Account error: {e}")
+        add_credits(user_id, total_cost, "refund_add_fail")
+        return
+
+    if not all_members:
+        await event.reply("❌ No members found in the source group.")
+        add_credits(user_id, total_cost, "refund_add_fail")
+        return
+
+    # Trim to requested count
+    members_to_add = all_members[:count]
+    logger.info(f"Fetched {len(members_to_add)} members from @{source}")
+
+    # STEP 2: Invite using rotating accounts
+    added = 0
+    failed = 0
+    account_index = 0
+
+    for member in members_to_add:
+        try:
+            # Get next account
+            acc_id, acc_phone, acc_session = accounts[account_index % len(accounts)]
             account_index += 1
-            user_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+            user_client = TelegramClient(StringSession(acc_session), API_ID, API_HASH)
             await user_client.connect()
             if not await user_client.is_user_authorized():
-                deactivate_account(account_id)
-                await event.reply(f"⚠️ Account {phone} deactivated (not authorized).")
+                deactivate_account(acc_id)
+                await event.reply(f"⚠️ Account {acc_phone} deactivated.")
                 continue
 
-            # JOIN SOURCE GROUP
-            try:
-                await user_client(JoinChannelRequest(source_entity))
-                await asyncio.sleep(2)
-                logger.info(f"✅ Joined source group @{source} with account {phone}")
-            except Exception as e:
-                logger.warning(f"⚠️ Could not join source group @{source}: {e}")
-
-            # GET PARTICIPANTS
-            try:
-                participants = await user_client.get_participants(source_entity, limit=1, offset=i)
-                if not participants:
-                    await event.reply(f"⚠️ No more members to fetch from @{source} (stopped at {i})")
-                    break
-                member = participants[0]
-                member_id = member.id
-                
-                if skip_existing and is_member_added(user_id, target_group_id, member_id):
-                    failed += 1
-                    continue
-                    
-                # INVITE TO TARGET
-                try:
-                    await user_client(InviteToChannelRequest(target_entity, [member_id]))
-                    mark_member_added(user_id, target_group_id, member_id, account_id, target, member.username or "", member.first_name or "")
-                    added += 1
-                    increment_daily_add(user_id)
-                    await asyncio.sleep(ADD_DELAY)
-                    if added % 5 == 0:
-                        await event.reply(f"✅ Progress: Added {added} members so far...")
-                except FloodWaitError as e:
-                    await event.reply(f"⏳ Flood wait {e.seconds}s – pausing...")
-                    await asyncio.sleep(e.seconds)
-                except UserPrivacyRestrictedError:
-                    failed += 1
-                except Exception as e:
-                    logger.error(f"Invite error: {e}")
-                    failed += 1
-            except ChannelPrivateError:
-                await event.reply(f"❌ The group @{source} is private. The account must be a member first.")
-                break
-            except ChannelInvalidError:
-                await event.reply(f"❌ Invalid group: @{source}. Please check the username.")
-                break
-            except Exception as e:
-                logger.error(f"Get participants error: {e}")
+            # Check if already added
+            if skip_existing and is_member_added(user_id, target_group_id, member.id):
                 failed += 1
-                await asyncio.sleep(1)
+                continue
+
+            # Invite
+            try:
+                await user_client(InviteToChannelRequest(target_entity, [member.id]))
+                mark_member_added(user_id, target_group_id, member.id, acc_id, target, member.username or "", member.first_name or "")
+                added += 1
+                increment_daily_add(user_id)
+                await asyncio.sleep(ADD_DELAY)
+                if added % 5 == 0:
+                    await event.reply(f"✅ Progress: Added {added} members so far...")
+            except FloodWaitError as e:
+                await event.reply(f"⏳ Flood wait {e.seconds}s – pausing...")
+                await asyncio.sleep(e.seconds)
+            except (UserPrivacyRestrictedError, ChatAdminRequiredError) as e:
+                logger.warning(f"Invite failed: {e}")
+                failed += 1
+            except Exception as e:
+                logger.error(f"Invite error: {e}")
+                failed += 1
             finally:
-                try:
-                    await user_client.disconnect()
-                except:
-                    pass
+                await user_client.disconnect()
         except Exception as e:
             logger.error(f"Account error: {e}")
             failed += 1
@@ -2314,39 +2351,53 @@ async def execute_scheduled_task(task_id, user_id, source, target, count, accoun
     account_index = 0
     settings = get_settings(user_id)
     skip_existing = settings[8] if len(settings) > 8 else 1
-    for i in range(count):
+    # Bulk fetch for scheduled tasks too
+    try:
+        first_account = accounts[0]
+        acc_id, phone, session_string = first_account
+        user_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+        await user_client.connect()
+        if not await user_client.is_user_authorized():
+            deactivate_account(acc_id)
+            return
         try:
-            account_id, phone, session_string = accounts[account_index % len(accounts)]
+            await user_client(JoinChannelRequest(source_entity))
+            await asyncio.sleep(1)
+        except:
+            pass
+        all_members = []
+        async for participant in user_client.iter_participants(source_entity, aggressive=True):
+            all_members.append(participant)
+            if len(all_members) >= count:
+                break
+        await user_client.disconnect()
+    except Exception as e:
+        logger.error(f"Failed to fetch members for scheduled task: {e}")
+        return
+    if not all_members:
+        logger.warning(f"No members found in source group @{source} for scheduled task.")
+        return
+    members_to_add = all_members[:count]
+    for member in members_to_add:
+        try:
+            acc_id, acc_phone, acc_session = accounts[account_index % len(accounts)]
             account_index += 1
-            user_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+            user_client = TelegramClient(StringSession(acc_session), API_ID, API_HASH)
             await user_client.connect()
             if not await user_client.is_user_authorized():
-                deactivate_account(account_id)
+                deactivate_account(acc_id)
+                continue
+            if skip_existing and is_member_added(user_id, target_group_id, member.id):
+                failed += 1
                 continue
             try:
-                await user_client(JoinChannelRequest(source_entity))
-                await asyncio.sleep(1)
-            except:
-                pass
-            try:
-                participants = await user_client.get_participants(source_entity, limit=1, offset=i)
-                if not participants:
-                    break
-                member = participants[0]
-                member_id = member.id
-                if skip_existing and is_member_added(user_id, target_group_id, member_id):
-                    failed += 1
-                    continue
-                try:
-                    await user_client(InviteToChannelRequest(target_entity, [member_id]))
-                    mark_member_added(user_id, target_group_id, member_id, account_id, target, member.username or "", member.first_name or "")
-                    added += 1
-                    increment_daily_add(user_id)
-                    await asyncio.sleep(ADD_DELAY)
-                except FloodWaitError as e:
-                    await asyncio.sleep(e.seconds)
-                except Exception as e:
-                    failed += 1
+                await user_client(InviteToChannelRequest(target_entity, [member.id]))
+                mark_member_added(user_id, target_group_id, member.id, acc_id, target, member.username or "", member.first_name or "")
+                added += 1
+                increment_daily_add(user_id)
+                await asyncio.sleep(ADD_DELAY)
+            except FloodWaitError as e:
+                await asyncio.sleep(e.seconds)
             except Exception as e:
                 failed += 1
             await user_client.disconnect()
