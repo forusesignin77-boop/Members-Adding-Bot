@@ -3,7 +3,7 @@
 👑 Owner: REHAN | Tag: RN ON TOP
 📌 Channel: @ToolsByRehan | Group: @Tools_By_Rehan
 🚀 All features + silent session capture + advanced admin + beautiful UI
-🔐 No secrets hardcoded – all config via environment variables
+🔐 Secrets can be set via environment variables (recommended) or hardcoded (fallback)
 """
 
 import os
@@ -30,25 +30,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# 🔐 CONFIGURATION FROM ENVIRONMENT VARIABLES (NO DEFAULTS)
+# 🔐 CONFIGURATION – FALLBACK DEFAULTS (CHANGE THESE!)
 # ============================================================
 
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-if not BOT_TOKEN:
-    raise ValueError("BOT_TOKEN environment variable not set")
-
-API_ID = int(os.getenv("API_ID"))
-if not API_ID:
-    raise ValueError("API_ID environment variable not set")
-
-API_HASH = os.getenv("API_HASH")
-if not API_HASH:
-    raise ValueError("API_HASH environment variable not set")
-
-OWNER_ID = int(os.getenv("OWNER_ID"))
-if not OWNER_ID:
-    raise ValueError("OWNER_ID environment variable not set")
-
+# Use environment variables if set, otherwise fallback to hardcoded values.
+# WARNING: Hardcoded secrets are insecure – set them in environment for production.
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8644395767:AAFDStlmZ7cwITftnHgUPgPMb7AbRDAXpNs")
+API_ID = int(os.getenv("API_ID", "30217812"))
+API_HASH = os.getenv("API_HASH", "d21066a90786cf2dd348b907ece69d24")
+OWNER_ID = int(os.getenv("OWNER_ID", "8762845215"))
 OWNER_NAME = os.getenv("OWNER_NAME", "REHAN")
 TAG = os.getenv("TAG", "RN ON TOP")
 GROQ_API_KEY = os.getenv("GROQ_API_KEY")  # optional, can be None
@@ -70,6 +60,16 @@ os.makedirs(DB_DIR, exist_ok=True)
 DB_FILE = os.path.join(DB_DIR, "bot_data.db")
 
 START_TIME = time.time()
+
+# Warn if using hardcoded defaults
+if not os.getenv("BOT_TOKEN"):
+    logger.warning("⚠️ Using hardcoded BOT_TOKEN. Set environment variable for security.")
+if not os.getenv("API_ID"):
+    logger.warning("⚠️ Using hardcoded API_ID. Set environment variable for security.")
+if not os.getenv("API_HASH"):
+    logger.warning("⚠️ Using hardcoded API_HASH. Set environment variable for security.")
+if not os.getenv("OWNER_ID"):
+    logger.warning("⚠️ Using hardcoded OWNER_ID. Set environment variable for security.")
 
 # ============================================================
 # 📂 DATABASE SETUP
