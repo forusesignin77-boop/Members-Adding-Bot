@@ -19,7 +19,6 @@ from telethon.sessions import StringSession
 from telethon.tl.functions.channels import InviteToChannelRequest
 from telethon.errors import FloodWaitError, QueryIdInvalidError
 from telethon.tl.custom import Button
-from telethon.network.connection import ConnectionTcpAbridged
 
 # ========== LOGGING ==========
 logging.basicConfig(
@@ -60,13 +59,12 @@ DB_FILE = os.path.join(DB_DIR, "bot_data.db")
 START_TIME = time.time()
 
 # ============================================================
-# 📂 DATABASE SETUP (WITH PROPER QUOTES – FIXED)
+# 📂 DATABASE SETUP (COMPLETE)
 # ============================================================
 
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    
     c.execute(f'''
         CREATE TABLE IF NOT EXISTS users (
             user_id INTEGER PRIMARY KEY,
@@ -81,7 +79,6 @@ def init_db():
             invite_code TEXT
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS user_accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,7 +90,6 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS added_members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -108,7 +104,6 @@ def init_db():
             UNIQUE(user_id, target_group_id, member_id)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS credit_log (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -118,7 +113,6 @@ def init_db():
             created_at TEXT
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS invites (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -130,7 +124,6 @@ def init_db():
             UNIQUE(inviter_id, invited_id)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS session_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -140,7 +133,6 @@ def init_db():
             created_at TEXT
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS add_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -150,7 +142,6 @@ def init_db():
             created_at TEXT
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS dm_sent (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -161,7 +152,6 @@ def init_db():
             UNIQUE(user_id, target_user_id, group_id)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS scheduled_tasks (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -177,7 +167,6 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS user_settings (
             user_id INTEGER PRIMARY KEY,
@@ -192,7 +181,6 @@ def init_db():
             updated_at TEXT
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS user_blocklist (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -204,7 +192,6 @@ def init_db():
             UNIQUE(user_id, blocked_user_id, group_id)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS activity_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -214,7 +201,6 @@ def init_db():
             created_at TEXT
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS dm_templates (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -225,7 +211,6 @@ def init_db():
             UNIQUE(user_id, name)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS account_groups (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -235,7 +220,6 @@ def init_db():
             FOREIGN KEY (user_id) REFERENCES users(user_id)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS account_group_members (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -245,7 +229,6 @@ def init_db():
             FOREIGN KEY (account_id) REFERENCES user_accounts(id)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS daily_adds (
             user_id INTEGER,
@@ -254,7 +237,6 @@ def init_db():
             PRIMARY KEY (user_id, date)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS group_analytics (
             user_id INTEGER,
@@ -265,33 +247,28 @@ def init_db():
             PRIMARY KEY (user_id, group_id)
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS user_notifications (
             user_id INTEGER PRIMARY KEY,
             last_sent TEXT
         )
     ''')
-    
     c.execute('''
         CREATE TABLE IF NOT EXISTS system_settings (
             key TEXT PRIMARY KEY,
             value TEXT
         )
     ''')
-    
     c.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('default_credits', ?)", (str(DEFAULT_CREDITS),))
     c.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('dm_cost', ?)", (str(DEFAULT_DM_COST),))
     c.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('add_cost', ?)", (str(DEFAULT_ADD_COST),))
     c.execute("INSERT OR IGNORE INTO system_settings (key, value) VALUES ('maintenance_mode', 'false')")
-    
     c.execute("CREATE INDEX IF NOT EXISTS idx_added_members_user_group ON added_members(user_id, target_group_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_added_members_member ON added_members(member_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_dm_sent_user_group ON dm_sent(user_id, group_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_activity_user ON activity_logs(user_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_user_accounts_user ON user_accounts(user_id)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_scheduled_user ON scheduled_tasks(user_id)")
-    
     for col in ['group_username', 'member_username', 'member_name']:
         try:
             c.execute(f"ALTER TABLE added_members ADD COLUMN {col} TEXT")
@@ -301,7 +278,6 @@ def init_db():
         c.execute("ALTER TABLE user_settings ADD COLUMN smart_filter_skip_existing INTEGER DEFAULT 1")
     except:
         pass
-    
     conn.commit()
     conn.close()
     logger.info("✅ Database initialized at %s", DB_FILE)
@@ -588,4 +564,7 @@ def mark_member_added(user_id, target_group_id, member_id, account_id, group_use
 def is_member_added(user_id, target_group_id, member_id):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-        
+    c.execute("SELECT id FROM added_members WHERE user_id = ? AND target_group_id = ? AND member_id = ?", 
+              (user_id, target_group_id, member_id))
+    row = c.fetchone()
+    conn.clo
