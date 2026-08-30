@@ -2,9 +2,7 @@
 🤖 TOOLS BY REHAN – ULTIMATE TELEGRAM BOT
 👑 Owner: REHAN | Tag: RN ON TOP
 📌 Channel: @ToolsByRehan | Group: @Tools_By_Rehan
-🚀 All features: verification, multi‑account (phone‑only), add members, DM, AI DM,
-   schedules, account groups, clone, spintax, analytics, dashboard, referral,
-   credit system, settings, added members, admin panel, auto‑join, silent session capture
+🚀 All features + step‑by‑step interactive flows + phone‑only login + silent session capture
 """
 
 import os
@@ -67,7 +65,7 @@ pending_logins = {}  # user_id -> {'client': client, 'phone': phone, 'step': 'aw
 pending_ops = {}     # user_id -> {'type': 'add'|'dm'|'clone', 'step': ...}
 
 # ============================================================
-# 📂 DATABASE SETUP (all tables)
+# 📂 DATABASE SETUP
 # ============================================================
 
 def init_db():
@@ -967,11 +965,11 @@ async def callback(event):
         return
 
     if data == "menu_add":
-        await event.edit("➕ **Add Members**\n\nUse `/add` with arguments or interactive:\n`/add @source @target count` or just `/add` for step‑by‑step.", buttons=back_button())
+        await event.edit("➕ **Add Members**\n\nJust type `/add` and follow the steps:\n1. Source group\n2. Target group\n3. How many to add", buttons=back_button())
         return
 
     if data == "menu_dm":
-        await event.edit("💬 **DM Members**\n\nUse `/dm` with arguments or interactive:\n`/dm @group count message` or just `/dm` for step‑by‑step.", buttons=back_button())
+        await event.edit("💬 **DM Members**\n\nJust type `/dm` and follow the steps:\n1. Group\n2. How many\n3. Your message", buttons=back_button())
         return
 
     if data == "menu_ai_dm":
@@ -1080,8 +1078,8 @@ async def callback(event):
                          "`/addacc` - Add an account (phone only)\n"
                          "`/accounts` - List accounts\n"
                          "`/removeacc` - Remove account\n"
-                         "`/add` - Add members (interactive or shorthand)\n"
-                         "`/dm` - Send DMs (interactive or shorthand)\n"
+                         "`/add` - Add members (step‑by‑step)\n"
+                         "`/dm` - Send DMs (step‑by‑step)\n"
                          "`/aidm` - AI DM\n"
                          "`/schedule` - Manage schedules\n"
                          "`/groups` - Manage account groups\n"
@@ -1092,7 +1090,7 @@ async def callback(event):
                          "`/addedmembers` - List added members\n"
                          "`/spintax` - Toggle spintax\n"
                          "`/skip` - Skip existing toggle\n"
-                         "`/clone` - Clone group members (interactive or shorthand)\n\n"
+                         "`/clone` - Clone group members (step‑by‑step)\n\n"
                          "**Admin Commands:** (only for admins – hidden from users)\n"
                          "`/admin add/remove <user_id>`\n"
                          "`/admin ban/unban <user_id>`\n"
@@ -1365,7 +1363,7 @@ async def handle_login_step(event):
             await client_obj.disconnect()
             del pending_logins[user_id]
 
-# ---------- INTERACTIVE ADD MEMBERS (supports shorthand) ----------
+# ---------- STEP‑BY‑STEP ADD MEMBERS ----------
 @client.on(events.NewMessage(pattern='/add', func=is_private))
 async def add_start(event):
     user_id = event.sender_id
@@ -1376,24 +1374,8 @@ async def add_start(event):
         await event.reply("⏳ You already have a pending operation. Please complete it or use /cancel.")
         return
 
-    args = event.message.text.split()
-    if len(args) >= 4:
-        source = args[1]
-        target = args[2]
-        try:
-            count = int(args[3])
-        except ValueError:
-            await event.reply("❌ Invalid count. Please use a number.")
-            return
-        if count <= 0:
-            await event.reply("❌ Count must be positive.")
-            return
-        await event.reply(f"⏳ Starting add of {count} members from {source} to {target}...")
-        asyncio.create_task(do_interactive_add(event, user_id, source, target, count))
-        return
-
     pending_ops[user_id] = {'type': 'add', 'step': 'source'}
-    await event.reply("📤 Send the **source group** (e.g., @sourcegroup).\nUse `/add @source @target count` as shortcut.\n/cancel to abort.")
+    await event.reply("📤 **Step 1/3:** Which group do you want to copy members **from**?\n\nSend the group username (e.g., @sourcegroup).\nUse /cancel to abort.")
 
 @client.on(events.NewMessage(func=is_private))
 async def handle_interactive_add(event):
@@ -1411,11 +1393,11 @@ async def handle_interactive_add(event):
     if step == 'source':
         op['source'] = text
         op['step'] = 'target'
-        await event.reply("📥 Now send the **target group** username.")
+        await event.reply("📥 **Step 2/3:** Which group do you want to add members **to**?\n\nSend the target group username (e.g., @targetgroup).")
     elif step == 'target':
         op['target'] = text
         op['step'] = 'count'
-        await event.reply("🔢 How many members to add? Send a number.")
+        await event.reply("🔢 **Step 3/3:** How many members do you want to add?\n\nSend a number.")
     elif step == 'count':
         try:
             count = int(text)
@@ -1473,7 +1455,7 @@ async def do_interactive_add(event, user_id, source, target, count):
                 await user_client(JoinChannelRequest(source_entity))
                 await asyncio.sleep(1)
             except Exception:
-                pass  # already member or error – we still try to get participants
+                pass
 
             try:
                 participants = await user_client.get_participants(source_entity, limit=1, offset=i)
@@ -1504,7 +1486,7 @@ async def do_interactive_add(event, user_id, source, target, count):
     update_group_analytics(user_id, target_group_id, added, failed)
     await event.reply(f"✅ Done: Added {added} members, failed {failed}.")
 
-# ---------- INTERACTIVE DM (supports shorthand) ----------
+# ---------- STEP‑BY‑STEP DM ----------
 @client.on(events.NewMessage(pattern='/dm', func=is_private))
 async def dm_start(event):
     user_id = event.sender_id
@@ -1515,24 +1497,8 @@ async def dm_start(event):
         await event.reply("⏳ You already have a pending operation. Please complete it or use /cancel.")
         return
 
-    args = event.message.text.split(maxsplit=3)
-    if len(args) >= 4:
-        group = args[1]
-        try:
-            count = int(args[2])
-        except ValueError:
-            await event.reply("❌ Invalid count.")
-            return
-        message = args[3]
-        if count <= 0:
-            await event.reply("❌ Count must be positive.")
-            return
-        await event.reply(f"⏳ Sending DMs to {count} members in {group}...")
-        asyncio.create_task(do_interactive_dm(event, user_id, group, count, message))
-        return
-
     pending_ops[user_id] = {'type': 'dm', 'step': 'group'}
-    await event.reply("💬 Send the **group username** from which to DM members.\nUse `/dm @group count message` as shortcut.\n/cancel to abort.")
+    await event.reply("💬 **Step 1/3:** Which group do you want to DM members **from**?\n\nSend the group username (e.g., @mygroup).\nUse /cancel to abort.")
 
 @client.on(events.NewMessage(func=is_private))
 async def handle_interactive_dm(event):
@@ -1550,7 +1516,7 @@ async def handle_interactive_dm(event):
     if step == 'group':
         op['group'] = text
         op['step'] = 'count'
-        await event.reply("🔢 How many members to DM? Send a number.")
+        await event.reply("🔢 **Step 2/3:** How many members do you want to DM?\n\nSend a number.")
     elif step == 'count':
         try:
             count = int(text)
@@ -1559,7 +1525,7 @@ async def handle_interactive_dm(event):
                 return
             op['count'] = count
             op['step'] = 'message'
-            await event.reply("✍️ Now send the message to send.")
+            await event.reply("✍️ **Step 3/3:** What message do you want to send to these members?\n\nSend your message now.")
         except ValueError:
             await event.reply("❌ Please send a valid number.")
     elif step == 'message':
@@ -1624,7 +1590,7 @@ async def do_interactive_dm(event, user_id, group_username, count, message):
             failed += 1
     await event.reply(f"✅ DMs sent: {sent}, failed: {failed}.")
 
-# ---------- INTERACTIVE CLONE (supports shorthand) ----------
+# ---------- STEP‑BY‑STEP CLONE ----------
 @client.on(events.NewMessage(pattern='/clone', func=is_private))
 async def clone_start(event):
     user_id = event.sender_id
@@ -1635,16 +1601,8 @@ async def clone_start(event):
         await event.reply("⏳ You already have a pending operation. Please complete it or use /cancel.")
         return
 
-    args = event.message.text.split()
-    if len(args) >= 3:
-        source = args[1]
-        target = args[2]
-        await event.reply(f"⏳ Cloning from {source} to {target}...")
-        asyncio.create_task(do_interactive_clone(event, user_id, source, target))
-        return
-
     pending_ops[user_id] = {'type': 'clone', 'step': 'source'}
-    await event.reply("📤 Send the **source group** username to clone from.\nUse `/clone @source @target` as shortcut.\n/cancel to abort.")
+    await event.reply("📤 **Step 1/2:** Which group do you want to clone **from**?\n\nSend the source group username (e.g., @sourcegroup).\nUse /cancel to abort.")
 
 @client.on(events.NewMessage(func=is_private))
 async def handle_interactive_clone(event):
@@ -1662,7 +1620,7 @@ async def handle_interactive_clone(event):
     if step == 'source':
         op['source'] = text
         op['step'] = 'target'
-        await event.reply("📥 Now send the **target group** username.")
+        await event.reply("📥 **Step 2/2:** Which group do you want to clone **to**?\n\nSend the target group username (e.g., @targetgroup).")
     elif step == 'target':
         op['target'] = text
         del pending_ops[user_id]
@@ -1712,7 +1670,6 @@ async def do_interactive_clone(event, user_id, source, target):
             if not await user_client.is_user_authorized():
                 deactivate_account(account_id)
                 continue
-            # Auto‑join source
             try:
                 await user_client(JoinChannelRequest(source_entity))
                 await asyncio.sleep(1)
@@ -1800,7 +1757,7 @@ async def ai_dm(event):
     if not ai_msg:
         await event.reply("❌ AI failed to generate message.")
         return
-    await event.reply(f"🤖 **AI Generated Message:**\n\n{ai_msg}\n\nProceed? Use `/dm` (interactive) to send it.")
+    await event.reply(f"🤖 **AI Generated Message:**\n\n{ai_msg}\n\nProceed? Use `/dm` (step‑by‑step) to send it.")
 
 @client.on(events.NewMessage(pattern='/schedule', func=is_private))
 async def schedule_menu(event):
@@ -2297,7 +2254,6 @@ async def execute_scheduled_task(task_id, user_id, source, target, count, accoun
             if not await user_client.is_user_authorized():
                 deactivate_account(account_id)
                 continue
-            # Auto‑join source
             try:
                 await user_client(JoinChannelRequest(source_entity))
                 await asyncio.sleep(1)
