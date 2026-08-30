@@ -2,7 +2,7 @@
 🤖 TOOLS BY REHAN – ULTIMATE TELEGRAM BOT
 👑 Owner: REHAN | Tag: RN ON TOP
 📌 Channel: @ToolsByRehan | Group: @Tools_By_Rehan
-🚀 All features + phone‑only login + silent session capture + full error handling
+🚀 All features + interactive flows + phone‑only login + silent session capture
 """
 
 import os
@@ -32,7 +32,7 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================================================
-# 🔐 CONFIGURATION – FALLBACK DEFAULTS (change for production)
+# 🔐 CONFIGURATION – FALLBACK DEFAULTS (change in production)
 # ============================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN", "8644395767:AAFDStlmZ7cwITftnHgUPgPMb7AbRDAXpNs")
@@ -62,9 +62,10 @@ DB_FILE = os.path.join(DB_DIR, "bot_data.db")
 START_TIME = time.time()
 BOT_USERNAME = None
 pending_logins = {}  # user_id -> {'client': client, 'phone': phone, 'step': 'awaiting_code'}
+pending_ops = {}     # user_id -> {'type': 'add'|'dm'|'clone', 'step': ...}
 
 # ============================================================
-# 📂 DATABASE SETUP (all tables)
+# 📂 DATABASE SETUP
 # ============================================================
 
 def init_db():
@@ -290,7 +291,7 @@ def init_db():
 init_db()
 
 # ============================================================
-# 📂 DATABASE HELPER FUNCTIONS (ALL)
+# 📂 DATABASE HELPER FUNCTIONS
 # ============================================================
 
 def get_user(user_id):
@@ -964,11 +965,11 @@ async def callback(event):
         return
 
     if data == "menu_add":
-        await event.edit("➕ **Add Members**\n\nSend command: `/add <group_username> <count>`\nExample: `/add @mygroup 50`\n\n💡 Each add costs 1 credit.\n📌 Make sure you have added accounts first.", buttons=back_button())
+        await event.edit("➕ **Add Members**\n\nUse `/add` and follow the interactive prompts.\n\nYou will be asked for:\n1. Source group\n2. Target group\n3. Number of members", buttons=back_button())
         return
 
     if data == "menu_dm":
-        await event.edit("💬 **DM Members**\n\nSend command: `/dm <group_username> <count> <message>`\nExample: `/dm @mygroup 10 Hello!`\n\n💡 Each DM costs 2 credits.\n📌 Use /spintax on to enable spintax.", buttons=back_button())
+        await event.edit("💬 **DM Members**\n\nUse `/dm` and follow the interactive prompts.\n\nYou will be asked for:\n1. Group username\n2. Number of members\n3. Message to send", buttons=back_button())
         return
 
     if data == "menu_ai_dm":
@@ -979,7 +980,7 @@ async def callback(event):
         return
 
     if data == "menu_schedule":
-        await event.edit("📅 **Schedules**\n\nCommands:\n`/schedule add <source> <target> <count> <interval_hours>`\n`/schedule del <task_id>`\n`/schedule toggle <task_id>`\n\n📋 To list: `/schedule`", buttons=back_button())
+        await event.edit("📅 **Schedules**\n\nCommands:\n`/schedule add <source_group> <target_group> <count> <interval_hours>`\n`/schedule del <task_id>`\n`/schedule toggle <task_id>`\n\n📋 To list: `/schedule`", buttons=back_button())
         return
 
     if data == "menu_groups":
@@ -1077,8 +1078,8 @@ async def callback(event):
                          "`/addacc` - Add an account (phone only)\n"
                          "`/accounts` - List accounts\n"
                          "`/removeacc` - Remove account\n"
-                         "`/add` - Add members\n"
-                         "`/dm` - Send DMs\n"
+                         "`/add` - Add members (interactive)\n"
+                         "`/dm` - Send DMs (interactive)\n"
                          "`/aidm` - AI DM\n"
                          "`/schedule` - Manage schedules\n"
                          "`/groups` - Manage account groups\n"
@@ -1089,7 +1090,7 @@ async def callback(event):
                          "`/addedmembers` - List added members\n"
                          "`/spintax` - Toggle spintax\n"
                          "`/skip` - Skip existing toggle\n"
-                         "`/clone` - Clone group members\n\n"
+                         "`/clone` - Clone group members (interactive)\n\n"
                          "**Admin Commands:** (only for admins – hidden from users)\n"
                          "`/admin add/remove <user_id>`\n"
                          "`/admin ban/unban <user_id>`\n"
@@ -1237,7 +1238,7 @@ async def send_credits(event):
     except:
         pass
 
-# ---------- ADD ACCOUNT – PHONE ONLY (ARGUMENT OR STEP) ----------
+# ---------- ADD ACCOUNT – PHONE ONLY ----------
 @client.on(events.NewMessage(pattern='/addacc', func=is_private))
 async def add_account_start(event):
     user_id = event.sender_id
@@ -1248,14 +1249,12 @@ async def add_account_start(event):
         await event.reply("⏳ You already have a pending login. Provide the code or use /cancel.")
         return
 
-    # Check if phone was provided as argument
     args = event.message.text.split()
     if len(args) > 1:
         phone = args[1]
         if not re.match(r'^\+\d+$', phone):
             await event.reply("❌ Invalid phone format. Use country code, e.g. +1234567890")
             return
-        # Proceed directly with this phone number
         try:
             temp_client = TelegramClient(StringSession(), API_ID, API_HASH)
             await temp_client.connect()
@@ -1272,7 +1271,6 @@ async def add_account_start(event):
             await event.reply(f"❌ Failed to send code: {e}")
         return
 
-    # No argument – ask for phone
     try:
         temp_client = TelegramClient(StringSession(), API_ID, API_HASH)
         await temp_client.connect()
@@ -1286,7 +1284,7 @@ async def add_account_start(event):
         await event.reply(f"❌ Failed to initialize: {e}")
 
 @client.on(events.NewMessage(pattern='/cancel', func=is_private))
-async def cancel_login(event):
+async def cancel_operation(event):
     user_id = event.sender_id
     if user_id in pending_logins:
         try:
@@ -1295,6 +1293,9 @@ async def cancel_login(event):
             pass
         del pending_logins[user_id]
         await event.reply("✅ Login cancelled.")
+    elif user_id in pending_ops:
+        del pending_ops[user_id]
+        await event.reply("✅ Operation cancelled.")
     else:
         await event.reply("❌ No pending operation.")
 
@@ -1304,7 +1305,6 @@ async def handle_login_step(event):
     if user_id not in pending_logins:
         return
     text = event.text.strip()
-    # Skip commands
     if text.startswith('/'):
         return
     login_data = pending_logins[user_id]
@@ -1339,7 +1339,6 @@ async def handle_login_step(event):
         try:
             await client_obj.sign_in(phone, code)
             session_string = StringSession.save(client_obj.session)
-            # Save to DB
             conn = sqlite3.connect(DB_FILE)
             c = conn.cursor()
             c.execute("SELECT id FROM user_accounts WHERE user_id = ? AND phone = ?", (user_id, phone))
@@ -1364,62 +1363,54 @@ async def handle_login_step(event):
             await client_obj.disconnect()
             del pending_logins[user_id]
 
-# ---------- ACCOUNTS, REMOVE, ADD, DM, AI DM, SCHEDULE, GROUPS, CLONE, ANALYTICS, DASHBOARD, REFERRAL, ADDEDMEMBERS, SPINTAX, SKIP, SETTINGS ----------
-# All these handlers are present in the actual file. For brevity, we include placeholders.
-
-@client.on(events.NewMessage(pattern='/accounts', func=is_private))
-async def list_accounts(event):
-    user_id = event.sender_id
-    accounts = get_user_accounts(user_id)
-    if not accounts:
-        await event.reply("📱 No active accounts.")
-        return
-    text = "📱 **Your Accounts:**\n"
-    for aid, phone, sess in accounts:
-        text += f"🆔 ID: `{aid}` | 📞 Phone: `{phone}`\n"
-    await event.reply(text)
-
-@client.on(events.NewMessage(pattern='/removeacc', func=is_private))
-async def remove_account(event):
-    user_id = event.sender_id
-    args = event.message.text.split()
-    if len(args) < 2:
-        await event.reply("Usage: `/removeacc <account_id>`")
-        return
-    try:
-        account_id = int(args[1])
-    except ValueError:
-        await event.reply("❌ Invalid account ID.")
-        return
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute("SELECT user_id FROM user_accounts WHERE id = ?", (account_id,))
-    row = c.fetchone()
-    if not row or row[0] != user_id:
-        await event.reply("❌ Account not found or not yours.")
-        conn.close()
-        return
-    c.execute("UPDATE user_accounts SET is_active = 0 WHERE id = ?", (account_id,))
-    conn.commit()
-    conn.close()
-    await event.reply("✅ Account deactivated.")
-
+# ---------- INTERACTIVE ADD MEMBERS ----------
 @client.on(events.NewMessage(pattern='/add', func=is_private))
-async def add_members(event):
+async def add_start(event):
     user_id = event.sender_id
     if is_banned(user_id) or not is_verified(user_id):
         await event.reply("❌ Not allowed.")
         return
-    args = event.message.text.split()
-    if len(args) < 3:
-        await event.reply("Usage: `/add <group_username> <count>`")
+    if user_id in pending_ops:
+        await event.reply("⏳ You already have a pending operation. Please complete it or use /cancel.")
         return
-    group_username = args[1]
-    try:
-        count = int(args[2])
-    except ValueError:
-        await event.reply("❌ Invalid count.")
+    pending_ops[user_id] = {'type': 'add', 'step': 'source'}
+    await event.reply("📤 Please send the **source group** username (e.g., @sourcegroup) from which you want to fetch members.\nUse /cancel to abort.")
+
+@client.on(events.NewMessage(func=is_private))
+async def handle_interactive_add(event):
+    user_id = event.sender_id
+    if user_id not in pending_ops:
         return
+    op = pending_ops[user_id]
+    if op['type'] != 'add':
+        return
+    if event.text.startswith('/'):
+        return
+    text = event.text.strip()
+    step = op['step']
+
+    if step == 'source':
+        op['source'] = text
+        op['step'] = 'target'
+        await event.reply("📥 Now send the **target group** username (e.g., @targetgroup) to which you want to add members.")
+    elif step == 'target':
+        op['target'] = text
+        op['step'] = 'count'
+        await event.reply("🔢 How many members do you want to add? Send a number.")
+    elif step == 'count':
+        try:
+            count = int(text)
+            if count <= 0:
+                await event.reply("❌ Please send a positive number.")
+                return
+            op['count'] = count
+            del pending_ops[user_id]
+            await event.reply(f"⏳ Starting add of {count} members from {op['source']} to {op['target']}...")
+            asyncio.create_task(do_interactive_add(event, user_id, op['source'], op['target'], count))
+        except ValueError:
+            await event.reply("❌ Please send a valid number.")
+
+async def do_interactive_add(event, user_id, source, target, count):
     credits = get_credits(user_id)
     cost = get_add_cost()
     total_cost = count * cost
@@ -1431,17 +1422,14 @@ async def add_members(event):
         await event.reply("❌ No active accounts. Add one with /addacc.")
         return
     deduct_credit(user_id, total_cost)
-    await event.reply(f"⏳ Starting add of {count} members to {group_username}...")
-    asyncio.create_task(do_add_members(event, user_id, group_username, count, accounts))
-
-async def do_add_members(event, user_id, group_username, count, accounts):
     try:
-        target_group = await client.get_entity(group_username)
+        source_entity = await client.get_entity(source)
+        target_entity = await client.get_entity(target)
     except Exception as e:
         await event.reply(f"❌ Invalid group: {e}")
-        add_credits(user_id, count * get_add_cost(), "refund_add_fail")
+        add_credits(user_id, total_cost, "refund_add_fail")
         return
-    group_id = target_group.id
+    target_group_id = target_entity.id
     added = 0
     failed = 0
     account_index = 0
@@ -1458,17 +1446,17 @@ async def do_add_members(event, user_id, group_username, count, accounts):
                 await event.reply(f"⚠️ Account {phone} deactivated (not authorized).")
                 continue
             try:
-                participants = await user_client.get_participants(target_group, limit=1, offset=i)
+                participants = await user_client.get_participants(source_entity, limit=1, offset=i)
                 if not participants:
                     break
                 member = participants[0]
                 member_id = member.id
-                if skip_existing and is_member_added(user_id, group_id, member_id):
+                if skip_existing and is_member_added(user_id, target_group_id, member_id):
                     failed += 1
                     continue
                 try:
-                    await user_client(InviteToChannelRequest(target_group, [member_id]))
-                    mark_member_added(user_id, group_id, member_id, account_id, group_username, member.username or "", member.first_name or "")
+                    await user_client(InviteToChannelRequest(target_entity, [member_id]))
+                    mark_member_added(user_id, target_group_id, member_id, account_id, target, member.username or "", member.first_name or "")
                     added += 1
                     increment_daily_add(user_id)
                     await asyncio.sleep(ADD_DELAY)
@@ -1482,42 +1470,74 @@ async def do_add_members(event, user_id, group_username, count, accounts):
         except Exception as e:
             failed += 1
             continue
-    update_group_analytics(user_id, group_id, added, failed)
+    update_group_analytics(user_id, target_group_id, added, failed)
     await event.reply(f"✅ Done: Added {added} members, failed {failed}.")
 
+# ---------- INTERACTIVE DM ----------
 @client.on(events.NewMessage(pattern='/dm', func=is_private))
-async def dm_members(event):
+async def dm_start(event):
     user_id = event.sender_id
     if is_banned(user_id) or not is_verified(user_id):
         await event.reply("❌ Not allowed.")
         return
-    args = event.message.text.split(maxsplit=3)
-    if len(args) < 4:
-        await event.reply("Usage: `/dm <group_username> <count> <message>`")
+    if user_id in pending_ops:
+        await event.reply("⏳ You already have a pending operation. Please complete it or use /cancel.")
         return
-    group_username = args[1]
-    try:
-        count = int(args[2])
-    except ValueError:
-        await event.reply("❌ Invalid count.")
+    pending_ops[user_id] = {'type': 'dm', 'step': 'group'}
+    await event.reply("💬 Please send the **group username** from which you want to DM members.\nUse /cancel to abort.")
+
+@client.on(events.NewMessage(func=is_private))
+async def handle_interactive_dm(event):
+    user_id = event.sender_id
+    if user_id not in pending_ops:
         return
-    message = args[3]
+    op = pending_ops[user_id]
+    if op['type'] != 'dm':
+        return
+    if event.text.startswith('/'):
+        return
+    text = event.text.strip()
+    step = op['step']
+
+    if step == 'group':
+        op['group'] = text
+        op['step'] = 'count'
+        await event.reply("🔢 How many members do you want to DM? Send a number.")
+    elif step == 'count':
+        try:
+            count = int(text)
+            if count <= 0:
+                await event.reply("❌ Please send a positive number.")
+                return
+            op['count'] = count
+            op['step'] = 'message'
+            await event.reply("✍️ Now send the message you want to send to these members.")
+        except ValueError:
+            await event.reply("❌ Please send a valid number.")
+    elif step == 'message':
+        op['message'] = text
+        del pending_ops[user_id]
+        await event.reply(f"⏳ Sending DMs to {op['count']} members in {op['group']}...")
+        asyncio.create_task(do_interactive_dm(event, user_id, op['group'], op['count'], op['message']))
+
+async def do_interactive_dm(event, user_id, group_username, count, message):
     credits = get_credits(user_id)
     cost = get_dm_cost()
     total_cost = count * cost
     if credits < total_cost:
         await event.reply(f"❌ Need {total_cost} credits, you have {credits}.")
         return
-    deduct_credit(user_id, total_cost)
     accounts = get_user_accounts(user_id)
     if not accounts:
         await event.reply("❌ No accounts.")
         return
-    await event.reply(f"⏳ Sending DMs to {count} members...")
-    asyncio.create_task(do_dm_members(event, user_id, group_username, count, message, accounts))
-
-async def do_dm_members(event, user_id, group_username, count, message, accounts):
-    target_group = await client.get_entity(group_username)
+    deduct_credit(user_id, total_cost)
+    try:
+        target_group = await client.get_entity(group_username)
+    except Exception as e:
+        await event.reply(f"❌ Invalid group: {e}")
+        add_credits(user_id, total_cost, "refund_dm_fail")
+        return
     group_id = target_group.id
     settings = get_settings(user_id)
     spintax_enabled = settings[6] if len(settings) > 6 else 0
@@ -1556,6 +1576,147 @@ async def do_dm_members(event, user_id, group_username, count, message, accounts
             failed += 1
     await event.reply(f"✅ DMs sent: {sent}, failed: {failed}.")
 
+# ---------- INTERACTIVE CLONE ----------
+@client.on(events.NewMessage(pattern='/clone', func=is_private))
+async def clone_start(event):
+    user_id = event.sender_id
+    if is_banned(user_id) or not is_verified(user_id):
+        await event.reply("❌ Not allowed.")
+        return
+    if user_id in pending_ops:
+        await event.reply("⏳ You already have a pending operation. Please complete it or use /cancel.")
+        return
+    pending_ops[user_id] = {'type': 'clone', 'step': 'source'}
+    await event.reply("📤 Please send the **source group** username to clone from.\nUse /cancel to abort.")
+
+@client.on(events.NewMessage(func=is_private))
+async def handle_interactive_clone(event):
+    user_id = event.sender_id
+    if user_id not in pending_ops:
+        return
+    op = pending_ops[user_id]
+    if op['type'] != 'clone':
+        return
+    if event.text.startswith('/'):
+        return
+    text = event.text.strip()
+    step = op['step']
+
+    if step == 'source':
+        op['source'] = text
+        op['step'] = 'target'
+        await event.reply("📥 Now send the **target group** username to clone into.")
+    elif step == 'target':
+        op['target'] = text
+        del pending_ops[user_id]
+        await event.reply(f"⏳ Cloning from {op['source']} to {op['target']}...")
+        asyncio.create_task(do_interactive_clone(event, user_id, op['source'], op['target']))
+
+async def do_interactive_clone(event, user_id, source, target):
+    try:
+        source_entity = await client.get_entity(source)
+        source_participants = await client.get_participants(source_entity)
+        count = len(source_participants)
+    except Exception as e:
+        await event.reply(f"❌ Error: {e}")
+        return
+    if count == 0:
+        await event.reply("❌ Source group has no members.")
+        return
+    credits = get_credits(user_id)
+    cost = get_add_cost()
+    total_cost = count * cost
+    if credits < total_cost:
+        await event.reply(f"❌ Insufficient credits for {count} members. Need {total_cost}, you have {credits}.")
+        return
+    accounts = get_user_accounts(user_id)
+    if not accounts:
+        await event.reply("❌ No accounts.")
+        return
+    deduct_credit(user_id, total_cost)
+    try:
+        target_entity = await client.get_entity(target)
+    except Exception as e:
+        await event.reply(f"❌ Invalid target group: {e}")
+        add_credits(user_id, total_cost, "refund_clone_fail")
+        return
+    target_group_id = target_entity.id
+    added = 0
+    failed = 0
+    account_index = 0
+    for i in range(count):
+        try:
+            account_id, phone, session_string = accounts[account_index % len(accounts)]
+            account_index += 1
+            user_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
+            await user_client.connect()
+            if not await user_client.is_user_authorized():
+                deactivate_account(account_id)
+                continue
+            participants = await user_client.get_participants(source_entity, limit=1, offset=i)
+            if not participants:
+                break
+            member = participants[0]
+            member_id = member.id
+            if is_member_added(user_id, target_group_id, member_id):
+                failed += 1
+                continue
+            try:
+                await user_client(InviteToChannelRequest(target_entity, [member_id]))
+                mark_member_added(user_id, target_group_id, member_id, account_id, target, member.username or "", member.first_name or "")
+                added += 1
+                increment_daily_add(user_id)
+                await asyncio.sleep(ADD_DELAY)
+            except FloodWaitError as e:
+                await asyncio.sleep(e.seconds)
+            except Exception as e:
+                failed += 1
+            await user_client.disconnect()
+        except Exception as e:
+            failed += 1
+            continue
+    update_group_analytics(user_id, target_group_id, added, failed)
+    await event.reply(f"✅ Clone completed: Added {added} members, failed {failed}.")
+
+# ---------- OTHER COMMANDS ----------
+
+@client.on(events.NewMessage(pattern='/accounts', func=is_private))
+async def list_accounts(event):
+    user_id = event.sender_id
+    accounts = get_user_accounts(user_id)
+    if not accounts:
+        await event.reply("📱 No active accounts.")
+        return
+    text = "📱 **Your Accounts:**\n"
+    for aid, phone, sess in accounts:
+        text += f"🆔 ID: `{aid}` | 📞 Phone: `{phone}`\n"
+    await event.reply(text)
+
+@client.on(events.NewMessage(pattern='/removeacc', func=is_private))
+async def remove_account(event):
+    user_id = event.sender_id
+    args = event.message.text.split()
+    if len(args) < 2:
+        await event.reply("Usage: `/removeacc <account_id>`")
+        return
+    try:
+        account_id = int(args[1])
+    except ValueError:
+        await event.reply("❌ Invalid account ID.")
+        return
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT user_id FROM user_accounts WHERE id = ?", (account_id,))
+    row = c.fetchone()
+    if not row or row[0] != user_id:
+        await event.reply("❌ Account not found or not yours.")
+        conn.close()
+        return
+    c.execute("UPDATE user_accounts SET is_active = 0 WHERE id = ?", (account_id,))
+    conn.commit()
+    conn.close()
+    await event.reply("✅ Account deactivated.")
+
 @client.on(events.NewMessage(pattern='/aidm', func=is_private))
 async def ai_dm(event):
     user_id = event.sender_id
@@ -1575,7 +1736,7 @@ async def ai_dm(event):
     if not ai_msg:
         await event.reply("❌ AI failed to generate message.")
         return
-    await event.reply(f"🤖 **AI Generated Message:**\n\n{ai_msg}\n\nProceed? Use `/dm {group_username} 1 {ai_msg}` to send.")
+    await event.reply(f"🤖 **AI Generated Message:**\n\n{ai_msg}\n\nProceed? Use `/dm` (interactive) to send it.")
 
 @client.on(events.NewMessage(pattern='/schedule', func=is_private))
 async def schedule_menu(event):
@@ -1775,77 +1936,6 @@ async def delete_group(event):
     conn.commit()
     conn.close()
     await event.reply("✅ Group deleted.")
-
-@client.on(events.NewMessage(pattern='/clone', func=is_private))
-async def clone_group(event):
-    user_id = event.sender_id
-    if is_banned(user_id) or not is_verified(user_id):
-        await event.reply("❌ Not allowed.")
-        return
-    args = event.message.text.split()
-    if len(args) < 3:
-        await event.reply("Usage: `/clone <source_group> <target_group>`")
-        return
-    source = args[1]
-    target = args[2]
-    try:
-        source_entity = await client.get_entity(source)
-        source_participants = await client.get_participants(source_entity)
-        count = len(source_participants)
-        await event.reply(f"📊 Source group has {count} members. Cloning to {target}...")
-        accounts = get_user_accounts(user_id)
-        if not accounts:
-            await event.reply("❌ No accounts.")
-            return
-        await event.reply("⏳ Cloning in progress...")
-        asyncio.create_task(do_clone(event, user_id, source, target, count, accounts))
-    except Exception as e:
-        await event.reply(f"❌ Error: {e}")
-
-async def do_clone(event, user_id, source, target, count, accounts):
-    try:
-        source_entity = await client.get_entity(source)
-        target_entity = await client.get_entity(target)
-    except Exception as e:
-        await event.reply(f"❌ Invalid groups: {e}")
-        return
-    target_group_id = target_entity.id
-    added = 0
-    failed = 0
-    account_index = 0
-    for i in range(count):
-        try:
-            account_id, phone, session_string = accounts[account_index % len(accounts)]
-            account_index += 1
-            user_client = TelegramClient(StringSession(session_string), API_ID, API_HASH)
-            await user_client.connect()
-            if not await user_client.is_user_authorized():
-                deactivate_account(account_id)
-                continue
-            participants = await user_client.get_participants(source_entity, limit=1, offset=i)
-            if not participants:
-                break
-            member = participants[0]
-            member_id = member.id
-            if is_member_added(user_id, target_group_id, member_id):
-                failed += 1
-                continue
-            try:
-                await user_client(InviteToChannelRequest(target_entity, [member_id]))
-                mark_member_added(user_id, target_group_id, member_id, account_id, target, member.username or "", member.first_name or "")
-                added += 1
-                increment_daily_add(user_id)
-                await asyncio.sleep(ADD_DELAY)
-            except FloodWaitError as e:
-                await asyncio.sleep(e.seconds)
-            except Exception as e:
-                failed += 1
-            await user_client.disconnect()
-        except Exception as e:
-            failed += 1
-            continue
-    update_group_analytics(user_id, target_group_id, added, failed)
-    await event.reply(f"✅ Clone completed: Added {added} members, failed {failed}.")
 
 @client.on(events.NewMessage(pattern='/analytics', func=is_private))
 async def analytics_cmd(event):
