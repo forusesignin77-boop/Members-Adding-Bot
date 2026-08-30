@@ -57,9 +57,10 @@ os.makedirs(DB_DIR, exist_ok=True)
 DB_FILE = os.path.join(DB_DIR, "bot_data.db")
 
 START_TIME = time.time()
+BOT_USERNAME = None  # will be set after start
 
 # ============================================================
-# 📂 DATABASE SETUP
+# 📂 DATABASE SETUP (unchanged)
 # ============================================================
 
 def init_db():
@@ -285,7 +286,7 @@ def init_db():
 init_db()
 
 # ============================================================
-# 📂 DATABASE HELPER FUNCTIONS (ALL)
+# 📂 DATABASE HELPER FUNCTIONS (ALL – unchanged)
 # ============================================================
 
 def get_user(user_id):
@@ -939,12 +940,11 @@ async def callback(event):
                 text += f"{sign}{amount} | {reason} | {created[:16]}\n"
         else:
             text += "No transactions yet."
-        # Add "Send Credits" button
         await event.edit(text, buttons=[[Button.inline("💸 Send Credits", b"send_credits")], back_button()[0]])
         return
 
     if data == "send_credits":
-        await event.edit("💸 **Send Credits**\n\nSend command: `/sendcredits <user_id> <amount>`\nExample: `/sendcredits 123456789 50`\n\nYou can also use the username: `/sendcredits @username 50`", buttons=back_button())
+        await event.edit("💸 **Send Credits**\n\nSend command: `/sendcredits <user_id_or_username> <amount>`\nExample: `/sendcredits 123456789 50` or `/sendcredits @username 50`", buttons=back_button())
         return
 
     if data == "menu_accounts":
@@ -1037,11 +1037,13 @@ async def callback(event):
         total_invites = c.execute("SELECT COUNT(*) FROM invites WHERE inviter_id = ? AND status='completed'", (user_id,)).fetchone()[0]
         tier_bonus = get_referral_tier(total_invites)
         conn.close()
+        # Use cached BOT_USERNAME (or fallback to a placeholder)
+        bot_username = BOT_USERNAME or "tg_members_adding_bot"
         text = f"👥 **Referral System**\n\n"
         text += f"🔑 Your invite code: `{invite_code}`\n"
         text += f"📊 Total invited (completed): {total_invites}\n"
         text += f"🎁 Next tier bonus: {tier_bonus} credits at {25} invites\n"
-        text += f"🔗 Share: https://t.me/{client.get_me().username}?start={invite_code}"
+        text += f"🔗 Share: https://t.me/{bot_username}?start={invite_code}"
         await event.edit(text, buttons=back_button())
         return
 
@@ -1187,7 +1189,6 @@ async def verify(event):
 async def credits_cmd(event):
     user_id = event.sender_id
     credits = get_credits(user_id)
-    # Show with send credits option in buttons
     await event.reply(f"💰 Your credits: {credits}", buttons=[[Button.inline("💸 Send Credits", b"send_credits")], [Button.inline("🔙 Back", b"menu_main")]])
 
 # ---------- SEND CREDITS COMMAND ----------
@@ -1239,9 +1240,6 @@ async def send_credits(event):
         await client.send_message(target_id, f"💸 You received {amount} credits from user {user_id}.")
     except:
         pass
-
-# ---------- OTHER COMMANDS (addacc, accounts, removeacc, add, dm, aidm, schedule, groups, clone, analytics, dashboard, referral, addedmembers, spintax, skip, settings) ----------
-# They are exactly as before – I've included them all in the actual file.
 
 @client.on(events.NewMessage(pattern='/addacc', func=is_private))
 async def add_account(event):
@@ -1769,11 +1767,12 @@ async def referral_cmd(event):
     total_invites = c.execute("SELECT COUNT(*) FROM invites WHERE inviter_id = ? AND status='completed'", (user_id,)).fetchone()[0]
     tier_bonus = get_referral_tier(total_invites)
     conn.close()
+    bot_username = BOT_USERNAME or "tg_members_adding_bot"
     text = f"👥 **Referral System**\n\n"
     text += f"🔑 Your invite code: `{invite_code}`\n"
     text += f"📊 Total invited (completed): {total_invites}\n"
     text += f"🎁 Next tier bonus: {tier_bonus} credits at {25} invites\n"
-    text += f"🔗 Share: https://t.me/{client.get_me().username}?start={invite_code}"
+    text += f"🔗 Share: https://t.me/{bot_username}?start={invite_code}"
     await event.reply(text)
 
 @client.on(events.NewMessage(pattern='/addedmembers', func=is_private))
@@ -1847,10 +1846,22 @@ async def admin_cmd(event):
         return
     args = event.message.text.split()
     if len(args) < 3:
-        await event.reply("Usage: `/admin <action> <user_id> [amount]`\nActions: add, remove, ban, unban, delete, setcredits")
+        await event.reply("Usage: `/admin <action> <user_id_or_username> [amount]`\nActions: add, remove, ban, unban, delete, setcredits")
         return
     action = args[1]
-    target_id = int(args[2])
+    target = args[2]
+    # Parse target (numeric ID or @username)
+    if target.startswith('@'):
+        target_id = get_user_by_username(target[1:])
+        if not target_id:
+            await event.reply(f"❌ User @{target[1:]} not found.")
+            return
+    else:
+        try:
+            target_id = int(target)
+        except ValueError:
+            await event.reply("❌ Invalid user ID or username.")
+            return
     if action == 'add':
         set_admin(target_id, True)
         await event.reply(f"✅ User {target_id} is now admin.")
@@ -1868,7 +1879,7 @@ async def admin_cmd(event):
         await event.reply(f"🗑️ User {target_id} deleted.")
     elif action == 'setcredits':
         if len(args) < 4:
-            await event.reply("Usage: `/admin setcredits <user_id> <amount>`")
+            await event.reply("Usage: `/admin setcredits <user_id_or_username> <amount>`")
             return
         amount = int(args[3])
         add_credits(target_id, amount, "admin_set")
@@ -2032,12 +2043,14 @@ async def auto_backup():
 # ============================================================
 
 async def main():
+    global BOT_USERNAME
     logger.info("🤖 Tools By Rehan Bot is starting...")
     while True:
         try:
             logger.info("🔌 Attempting to connect to Telegram...")
             await client.start(bot_token=BOT_TOKEN)
             me = await client.get_me()
+            BOT_USERNAME = me.username
             logger.info("✅ Bot connected as @%s", me.username)
             await client.send_message(OWNER_ID, f"✅ Bot started successfully on {datetime.now()}")
             asyncio.create_task(run_scheduled_tasks())
